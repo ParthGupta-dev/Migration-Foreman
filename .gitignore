@@ -1,0 +1,15 @@
+# Node / Next.js
+node_modules/
+.next/
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Env
+.env
+
+# Execution Engine — per-unit git worktrees created at runtime
+worktrees/
