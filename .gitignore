@@ -13,3 +13,6 @@ venv/
 
 # Execution Engine — per-unit git worktrees created at runtime
 worktrees/
+
+# Backend runtime state: cloned repos + worktrees (backend/data), demo repo
+data/

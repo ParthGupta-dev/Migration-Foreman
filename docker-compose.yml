@@ -10,34 +10,41 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d migration_foreman"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
 
   backend:
-    image: python:3.12-slim
+    build: ./backend
     working_dir: /app
     volumes:
       - ./backend:/app
-    env_file:
-      - .env
     environment:
-      DATABASE_URL: ${DATABASE_URL}
-      GITHUB_TOKEN: ${GITHUB_TOKEN}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL}
-    command: sh -c "pip install -r requirements.txt && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/migration_foreman
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      CODEX_MODEL: ${CODEX_MODEL:-gpt-5-codex}
+      MOCK_CODEX: ${MOCK_CODEX:-0}
+      FRONTEND_BASE_URL: http://localhost:3000
+      # Keep runtime clones/worktrees OUT of /app: uvicorn --reload watches
+      # /app and would restart (killing campaigns) on every git write.
+      DATA_DIR: /data
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "8000:8000"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
 
   frontend:
     image: node:20-alpine
     working_dir: /app
     volumes:
       - ./frontend:/app
-    env_file:
-      - .env
     environment:
-      BACKEND_BASE_URL: ${BACKEND_BASE_URL}
+      NEXT_PUBLIC_BACKEND_BASE_URL: http://localhost:8000
     command: sh -c "npm install && npm run dev"
     ports:
       - "3000:3000"
