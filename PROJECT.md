@@ -4,7 +4,7 @@
 **Purpose:** Single source of truth for project scope, architecture, contracts, conventions, ownership, and build progress. All teammates and AI coding assistants should treat this document as the authoritative context for the project.
 **Audience:** All teammates and AI coding assistants.
 **Status:** Draft
-**Last Updated:** 2026-07-06 — Parth
+**Last Updated:** 2026-07-07 — Parth (backend, scripts, and Docker infra implemented and verified end-to-end)
 
 ## Table of Contents
 
@@ -483,56 +483,56 @@ This is the team's live project tracker. Each person checks off tasks/subtasks a
 
 **Build Tracker:**
 
-- [ ] Project scaffolding
-  - [ ] Init FastAPI project
-  - [ ] Configure native WebSocket server
-  - [ ] Connect to PostgreSQL
-  - [ ] Set up env config (.env + dotenv)
-  - [ ] Write Dockerfile (install Tree-sitter, git, test runners for the demo repo's stack)
-  - [ ] Write docker-compose.yml (frontend + backend + Postgres)
+- [x] Project scaffolding
+  - [x] Init FastAPI project
+  - [x] Configure native WebSocket server
+  - [x] Connect to PostgreSQL
+  - [x] Set up env config (.env + dotenv)
+  - [x] Write Dockerfile (install Tree-sitter, git, test runners for the demo repo's stack)
+  - [x] Write docker-compose.yml (frontend + backend + Postgres)
 
-- [ ] Repo ingestion
-  - [ ] `POST /repo` endpoint — pulls target repo to the server, stores `Repo` record
-  - [ ] Trigger Discovery Engine parse + graph build on ingestion
+- [x] Repo ingestion
+  - [x] `POST /repo` endpoint — pulls target repo to the server, stores `Repo` record
+  - [x] Trigger Discovery Engine parse + graph build on ingestion
 
-- [ ] Discovery Engine (safety-critical — build last, gate carefully)
-  - [ ] Tree-sitter parse of target repo — extract file/module structure and import relationships
-  - [ ] Build dependency graph with NetworkX — nodes = files/modules, edges = imports/calls
-  - [ ] Compute recent-commit-activity score per file (git log frequency, recency-weighted)
-  - [ ] Compute centrality score per file (in-degree in the import/call graph)
-  - [ ] Rank candidates by centrality × recent activity
-  - [ ] `GET /repo/{id}/candidates` endpoint — returns ranked seam candidates
-  - [ ] Safety blacklist: `auth/`, `payments/`, `**/migrations/`, common secrets/config patterns — configurable per repo, applied before candidates are ever shown or auto-selected
-  - [ ] Autonomous mode refuses to proceed if the top-ranked candidate is blacklisted — falls back to next candidate, never silently overrides the blacklist
-  - [ ] `POST /repo/{id}/seam` endpoint — operator confirms or submits a manual seam definition
+- [x] Discovery Engine (safety-critical — build last, gate carefully)
+  - [x] Tree-sitter parse of target repo — extract file/module structure and import relationships *(shipped as regex-based import extraction behind the same interface — see flagged deviations)*
+  - [x] Build dependency graph with NetworkX — nodes = files/modules, edges = imports/calls
+  - [x] Compute recent-commit-activity score per file (git log frequency, recency-weighted)
+  - [x] Compute centrality score per file (in-degree in the import/call graph)
+  - [x] Rank candidates by centrality × recent activity
+  - [x] `GET /repo/{id}/candidates` endpoint — returns ranked seam candidates
+  - [x] Safety blacklist: `auth/`, `payments/`, `**/migrations/`, common secrets/config patterns — configurable per repo, applied before candidates are ever shown or auto-selected
+  - [x] Autonomous mode refuses to proceed if the top-ranked candidate is blacklisted — falls back to next candidate, never silently overrides the blacklist (enforced server-side: `400 candidate_blacklisted`)
+  - [x] `POST /repo/{id}/seam` endpoint — operator confirms or submits a manual seam definition
 
-- [ ] Execution Engine
-  - [ ] Rule-based unit split of seam scope (one unit per file/directory for hackathon scope)
-  - [ ] Isolated git worktree creation per unit, cleanup after unit resolution
-  - [ ] Per-unit Codex invocation — scoped to unit's files, given before/after pattern + invariants
-  - [ ] Retry invocation — same call, with failure log appended as additional context
+- [x] Execution Engine
+  - [x] Rule-based unit split of seam scope (one unit per file/directory for hackathon scope)
+  - [x] Isolated git worktree creation per unit, cleanup after unit resolution
+  - [x] Per-unit Codex invocation — scoped to unit's files, given before/after pattern + invariants
+  - [x] Retry invocation — same call, with failure log appended as additional context
 
-- [ ] Verification Gate
-  - [ ] Test runner wrapper — executes seam's `test_command` inside a unit's worktree, captures stdout/stderr
-  - [ ] Retry loop — on failure, feed log back to Codex, re-invoke, increment attempt count, cap at 3
-  - [ ] Escalation logic — after 3 failed attempts, mark unit `escalated`, store failure log
+- [x] Verification Gate
+  - [x] Test runner wrapper — executes seam's `test_command` inside a unit's worktree, captures stdout/stderr
+  - [x] Retry loop — on failure, feed log back to Codex, re-invoke, increment attempt count, cap at 3
+  - [x] Escalation logic — after 3 failed attempts, mark unit `escalated`, store failure log
 
-- [ ] Campaign management
-  - [ ] `POST /campaign` endpoint — validates seam, splits into units, creates Campaign + Unit records, triggers Execution Engine
-  - [ ] `GET /campaign/{id}` endpoint — returns current campaign status and all unit states
-  - [ ] Campaign status updates streamed via WebSocket
+- [x] Campaign management
+  - [x] `POST /campaign` endpoint — validates seam, splits into units, creates Campaign + Unit records, triggers Execution Engine
+  - [x] `GET /campaign/{id}` endpoint — returns current campaign status and all unit states
+  - [x] Campaign status updates streamed via WebSocket
 
-- [ ] PR assembly
-  - [ ] `POST /campaign/{id}/finalize` endpoint — merges all accepted units, opens PR via GitHub API, lists escalated units in PR description
+- [x] PR assembly
+  - [x] `POST /campaign/{id}/finalize` endpoint — merges all accepted units, opens PR via GitHub API, lists escalated units in PR description (non-GitHub repo or missing token → `502 pr_creation_failed`, summary falls back to diffs per section 11)
 
-- [ ] Audit trail
-  - [ ] Store `UnitEvent` on every status change (pending → running → passed/failed/retrying/escalated)
+- [x] Audit trail
+  - [x] Store `UnitEvent` on every status change (pending → running → passed/failed/retrying/escalated)
 
 - [ ] Demo repo prep
-  - [ ] Choose and freeze the demo repo — no swapping after Day 0
-  - [ ] Confirm the repo's test suite runs cleanly on a fresh pull, no flaky tests
-  - [ ] Manually verify the seam's `test_command` distinguishes before/after state
-  - [ ] Manually run the migration once end-to-end before demo day
+  - [ ] Choose and freeze the demo repo — no swapping after Day 0 *(generated candidate ready via `scripts/setup_demo_repo.py`; freeze is a team call)*
+  - [x] Confirm the repo's test suite runs cleanly on a fresh pull, no flaky tests
+  - [x] Manually verify the seam's `test_command` distinguishes before/after state
+  - [x] Manually run the migration once end-to-end before demo day *(full run verified: 3 passed, 1 escalated, live WS stream, finalize fallback)*
 
 ---
 
