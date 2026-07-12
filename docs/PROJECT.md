@@ -4,7 +4,7 @@
 **Purpose:** Single source of truth for project scope, architecture, contracts, conventions, ownership, and build progress. All teammates and AI coding assistants should treat this document as the authoritative context for the project.
 **Audience:** All teammates and AI coding assistants.
 **Status:** Draft
-**Last Updated:** 2026-07-07 — Parth (backend, scripts, and Docker infra implemented and verified end-to-end)
+**Last Updated:** 2026-07-12 — Parth (doc-vs-code drift fixes: removed dead APScheduler dependency, corrected execution-isolation and deployment claims, documented `GET /health` and DB connection lifecycle)
 
 ## Table of Contents
 
@@ -136,16 +136,16 @@ AI assistants working on this codebase must:
 | Component | Technology |
 | --- | --- |
 | Frontend | Next.js 14 (App Router) + Tailwind + React Flow (dependency graph) + Recharts (summary stats) |
-| Backend + Orchestration | FastAPI (Python) + APScheduler (retry/escalation scheduling) |
+| Backend + Orchestration | FastAPI (Python) — retry/escalation loop is a plain in-process attempt loop in `verification/gate.py`, not a job scheduler |
 | Code Analysis | Tree-sitter (parsing), NetworkX (dependency graph computation) |
 | AI Engine | Codex via OpenAI Responses API — one agent invocation per work unit |
-| Execution Isolation | Git worktrees (one per unit), Docker sandbox for running tests |
+| Execution Isolation | Git worktrees (one per unit) only — `test_command` runs as a direct `shell=True` subprocess in the worktree, no additional container/process sandbox |
 | Real-time | Native FastAPI WebSockets |
 | Database | PostgreSQL (Supabase or self-hosted) — run/unit/event state |
 | Graph Storage | Neo4j (optional — NetworkX in-memory is sufficient for a single hackathon-sized repo; add only if the demo repo needs persistent graph queries) |
 | Git Integration | GitPython, GitHub API (PR creation, commit history read) |
 | Dev Start | Docker Compose — single `docker-compose up` boots frontend + backend + Postgres containers |
-| Deployment | Vercel (frontend), Railway (backend) |
+| Deployment | Not yet stood up — local dev only via Docker Compose. Vercel (frontend) / Railway (backend) remain the intended targets if a deployed demo URL is needed. |
 
 ---
 
@@ -244,6 +244,12 @@ These definitions are the single source of truth referenced by the contracts in 
 
 > **Note:** Campaign summary stats (accepted/escalated counts) are computed at read time via `GROUP BY status` over `units`, not stored as columns.
 
+### Database Connection Lifecycle
+
+- `config.DATABASE_URL` is read from the environment (`.env` locally), defaulting to `postgresql://postgres:postgres@localhost:5432/migration_foreman`; `docker-compose.yml` overrides the host to the Compose service name `postgres`.
+- `db.py` holds a single module-level `asyncpg` pool (`_pool`), opened in `init_pool()` on the FastAPI `startup` event and closed in `close_pool()` on `shutdown`. If Postgres is unreachable at startup, the error is logged and the app still boots (see `GET /health` above for how to detect this).
+- All routes share this one pool via `db.fetchrow` / `db.fetch` / `db.execute` — there is no per-request session or dependency-injected connection.
+
 ---
 
 ## 7. Contracts
@@ -251,6 +257,16 @@ These definitions are the single source of truth referenced by the contracts in 
 These contracts are locked for the build. Any change requires flagging to the whole team before implementation, since frontend and backend are built in parallel against these shapes. Sujat should be looped in as reviewer so he's not blindsided by a contract shift mid-build.
 
 ### REST APIs
+
+#### `GET /health`
+
+Liveness/readiness probe — not part of the state-changing contract surface above, but documented here for completeness.
+
+**Response:**
+```json
+{ "status": "ok | degraded", "db": "connected | unavailable" }
+```
+`degraded`/`unavailable` means the process is up but its Postgres pool is not — every data route will 500 until Postgres recovers.
 
 #### `POST /repo`
 

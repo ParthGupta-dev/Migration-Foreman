@@ -86,7 +86,11 @@ def _repo_path(repo_id: str):
 
 @app.get("/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok"}
+    try:
+        await db.execute("SELECT 1")
+        return {"status": "ok", "db": "connected"}
+    except Exception:
+        return {"status": "degraded", "db": "unavailable"}
 
 
 # --- Repo ingestion -----------------------------------------------------
