@@ -35,7 +35,7 @@ Built for the Codex Community Hackathon, New Delhi NCR, July 14, 2026. Agentic C
 
 **Step by step:**
 
-1. Operator submits a repo URL (or a repo is pre-cloned for the demo) via frontend
+1. Operator submits a repo URL (or a repo is pre-pulled for the demo) via frontend
 2. Backend clones the repo, Discovery Engine parses it (Tree-sitter) and builds a dependency graph (NetworkX)
 3. Discovery Engine scores candidate migration targets — runtime centrality (approximated via import/call-graph in-degree) crossed with recent commit activity (git log) — filtered against a safety blacklist
 4. Top-ranked candidate is presented as a **seam definition**: `{scope_globs, before_pattern, after_pattern, invariants, test_command}` — operator confirms or overrides
