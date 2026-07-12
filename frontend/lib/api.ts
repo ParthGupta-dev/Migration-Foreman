@@ -7,9 +7,11 @@ import type {
   FinalizeResult,
   GraphResponse,
   HealthResponse,
+  Plan,
   Repo,
   Seam,
   SeamRequest,
+  UnitPreview,
 } from "./types";
 
 export class ApiError extends Error {
@@ -59,6 +61,9 @@ export const api = {
   getGraph: (repoId: string) =>
     request<GraphResponse>("GET", `/repo/${repoId}/graph`),
 
+  createPlan: (repoId: string, intent: string) =>
+    request<Plan>("POST", `/repo/${repoId}/plan`, { intent }),
+
   createSeam: (repoId: string, body: SeamRequest) =>
     request<Seam>("POST", `/repo/${repoId}/seam`, body),
 
@@ -67,6 +72,9 @@ export const api = {
 
   getCampaign: (campaignId: string) =>
     request<Campaign>("GET", `/campaign/${campaignId}`),
+
+  getUnitPreview: (campaignId: string, unitId: string) =>
+    request<UnitPreview>("GET", `/campaign/${campaignId}/unit/${unitId}/preview`),
 
   finalizeCampaign: (campaignId: string) =>
     request<FinalizeResult>("POST", `/campaign/${campaignId}/finalize`),

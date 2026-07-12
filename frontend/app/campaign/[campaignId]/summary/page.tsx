@@ -5,7 +5,8 @@ import { useParams } from "next/navigation";
 import { ApiError, api } from "@/lib/api";
 import type { Campaign, FinalizeResult } from "@/lib/types";
 import CampaignSummaryChart from "@/components/CampaignSummaryChart";
-import UnitStatusTable from "@/components/UnitStatusTable";
+import UnitStatusTable, { type UnitView } from "@/components/UnitStatusTable";
+import UnitPreviewPanel from "@/components/UnitPreviewPanel";
 import DiffView from "@/components/DiffView";
 
 export default function CampaignSummaryPage() {
@@ -15,6 +16,7 @@ export default function CampaignSummaryPage() {
   const [finalizeResult, setFinalizeResult] = useState<FinalizeResult | null>(null);
   const [finalizing, setFinalizing] = useState(false);
   const [finalizeError, setFinalizeError] = useState<string | null>(null);
+  const [selectedView, setSelectedView] = useState<UnitView>(null);
 
   useEffect(() => {
     api.getCampaign(params.campaignId).then(setCampaign).catch(() => setCampaign(null));
@@ -50,8 +52,34 @@ export default function CampaignSummaryPage() {
           Campaign summary — {params.campaignId.slice(0, 8)}
         </h2>
         <CampaignSummaryChart units={campaign.units} />
-        <UnitStatusTable units={campaign.units} />
+        <UnitStatusTable
+          units={campaign.units}
+          selected={selectedView}
+          onSelect={setSelectedView}
+        />
       </section>
+
+      {selectedView && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+            {selectedView.view === "preview" ? "Live preview" : "Unit diff"}
+          </h2>
+          {selectedView.view === "preview" ? (
+            <UnitPreviewPanel campaignId={params.campaignId} unitId={selectedView.unitId} />
+          ) : (
+            (() => {
+              const unit = campaign.units.find(
+                (candidate) => candidate.unitId === selectedView.unitId
+              );
+              return unit?.diff ? (
+                <DiffView diff={unit.diff} />
+              ) : (
+                <p className="text-xs text-slate-600">No diff recorded for this unit.</p>
+              );
+            })()
+          )}
+        </section>
+      )}
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
@@ -83,28 +111,13 @@ export default function CampaignSummaryPage() {
         )}
         {finalizeError && (
           <p className="text-sm text-red-400">
-            PR creation failed ({finalizeError}) — showing the aggregated diffs below instead.
+            PR creation failed ({finalizeError}) — use View Diff / Live Preview on the
+            units above to inspect the changes instead.
           </p>
         )}
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-          Per-unit diffs
-        </h2>
         {acceptedOrEscalated.length === 0 && (
-          <p className="text-sm text-slate-500">No accepted or escalated units with diffs.</p>
+          <p className="text-sm text-slate-500">No accepted or escalated units.</p>
         )}
-        {acceptedOrEscalated.map((unit) => (
-          <div key={unit.unitId} className="space-y-1">
-            <p className="font-mono text-xs text-slate-400">
-              {unit.scopeGlob} — <span className="uppercase">{unit.status}</span>
-            </p>
-            {unit.diff ? <DiffView diff={unit.diff} /> : (
-              <p className="text-xs text-slate-600">No diff recorded for this unit.</p>
-            )}
-          </div>
-        ))}
       </section>
     </div>
   );

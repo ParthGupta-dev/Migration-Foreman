@@ -1,4 +1,8 @@
-"""Rule-based unit split: one unit per file matched by the seam's scope globs."""
+"""Rule-based unit split: one unit per file matched by the seam's scope globs.
+
+Uses the scannable set (code + docs/markup/styles) so migrations can also
+touch READMEs, HTML, and CSS — each still one isolated unit.
+"""
 
 import fnmatch
 from pathlib import Path
@@ -10,7 +14,7 @@ def split_units(repo_path: Path, scope_globs: list[str]) -> list[str]:
     """Return repo-relative file paths, one per unit, matching any scope glob."""
     files = [
         file.relative_to(repo_path).as_posix()
-        for file in parser.list_source_files(repo_path)
+        for file in parser.list_scannable_files(repo_path)
     ]
     matched: list[str] = []
     for rel_path in files:
