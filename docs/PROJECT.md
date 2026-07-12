@@ -254,7 +254,7 @@ These definitions are the single source of truth referenced by the contracts in 
 
 ## 7. Contracts
 
-These contracts are locked for the build. Any change requires flagging to the whole team before implementation, since frontend and backend are built in parallel against these shapes. Sujat should be looped in as reviewer so he's not blindsided by a contract shift mid-build.
+These contracts are locked for the build. Any change requires flagging to the whole team before implementation, since frontend and backend are built in parallel against these shapes.
 
 ### REST APIs
 
@@ -481,8 +481,6 @@ root/
 | `deck/` | Pitch deck, demo script, closing-slide numbers | Tanvi |
 | `scripts/` | Dev/ops utilities: demo repo setup, seed data, campaign runner | Parth |
 
-> **Note:** Sujat owns no folder directly. He reviews PRs across `frontend/` and `backend/` and flags anything conflicting — see section 9.
-
 ---
 
 ## 9. Ownership & Build Plan
@@ -493,7 +491,7 @@ This is the team's live project tracker. Each person checks off tasks/subtasks a
 
 **Responsibilities:** FastAPI scaffolding, REST + WebSocket contracts, Discovery Engine, Execution Engine, Verification Gate, PR assembly, audit trail, Postgres integration, Docker/dev infra, demo repo prep.
 
-**Dependencies:** Frontend must consume the contracts in section 7 exactly as defined (Arushi); Sujat reviews PRs and flags anything conflicting.
+**Dependencies:** Frontend must consume the contracts in section 7 exactly as defined (Arushi).
 
 **Do Not Modify:** `frontend/` without flagging it to Arushi first.
 
@@ -590,21 +588,6 @@ This is the team's live project tracker. Each person checks off tasks/subtasks a
 
 ---
 
-### Sujat — PR Reviewer
-
-**Responsibilities:** Reviews PRs opened against `main` from either `frontend/` or `backend/`. Checks for contract mismatches (section 7 changes made without flagging the team), naming-convention slips (section 3), and logic conflicts between frontend assumptions and backend reality (e.g. a frontend PR expecting a field the backend contract doesn't return). Flags issues with specific comments and helps whoever owns the code resolve them — not a merge gate, just a second set of eyes before things land.
-
-**Dependencies:** Needs visibility into both `frontend/` and `backend/` PRs as they're opened; should be looped in before any contract, schema, or ownership change per section 13, same as any other teammate.
-
-**Do Not Modify:** No exclusive folder ownership — Sujat flags issues in review comments rather than committing directly into someone else's area, unless the owner asks him to fix something himself.
-
-**Build Tracker:**
-- [ ] Review checklist drafted (contract compliance, naming conventions, no unapproved dependency additions)
-- [ ] First review pass once Checkpoint 1 (section 10) is reached
-- [ ] Final review pass before Demo Lock (section 12)
-
----
-
 ### Tanvi — Presentation
 
 **Responsibilities:** Pitch deck, demo narrative, slide sequencing. Coordinates with Parth and Arushi to pull the actual closing-slide numbers (units migrated / verified / escalated) from a real rehearsal run rather than placeholder figures.
@@ -661,7 +644,7 @@ This is the team's live project tracker. Each person checks off tasks/subtasks a
 ### Checkpoint 8 — Full demo rehearsal
 - **Required completed components:** All of the above, plus the frozen demo repo (Parth) and the deck (Tanvi).
 - **Validation criteria:** A complete run-through — repo ingest → seam review → campaign → live dashboard → PR — completes successfully within the demo time slot, including at least one deliberately triggered retry.
-- **Expected output:** A timed, successful rehearsal, with a backup recording, and Sujat's final review pass through open PRs complete.
+- **Expected output:** A timed, successful rehearsal, with a backup recording.
 
 ---
 
@@ -688,7 +671,6 @@ This is the team's live project tracker. Each person checks off tasks/subtasks a
 - [ ] PR assembly works (`POST /campaign/{id}/finalize`)
 - [ ] Demo repo frozen, test suite confirmed clean with no flaky tests
 - [ ] Full rehearsal completed and timed to fit the demo slot, with a backup recording
-- [ ] Sujat has done a final review pass across open PRs with no unresolved contract conflicts
 - [ ] Deck finalized with real (not placeholder) closing numbers
 
 **Demo lock policy:** Once the checklist above is fully complete and the full rehearsal (Checkpoint 8, section 10) has passed, the project enters demo lock.
@@ -705,9 +687,8 @@ This is the team's live project tracker. Each person checks off tasks/subtasks a
 
 - PROJECT.md is the repository source of truth.
 - Architecture changes (section 5) require team approval.
-- Contract changes (section 7) require team approval, with Sujat looped in as reviewer.
+- Contract changes (section 7) require team approval.
 - Schema changes (section 6 / database schema in section 7) require team approval.
 - Ownership changes (section 9) require team approval.
-- Sujat reviews PRs against `main` from either `frontend/` or `backend/` and flags conflicts — he's a reviewer, not a merge gate.
 - Any approved change must be reflected immediately in the relevant section of this document.
 - No silent edits to shared project context — if a change affects another teammate's work, that teammate must be informed before the document is updated.

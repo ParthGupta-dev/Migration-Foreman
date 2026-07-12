@@ -86,7 +86,7 @@ async def run_unit(
 
             try:
                 content = target.read_text(encoding="utf-8", errors="replace")
-                migrated = await asyncio.to_thread(
+                migrated, rationale = await asyncio.to_thread(
                     codex.migrate_file,
                     scope_glob,
                     content,
@@ -109,6 +109,10 @@ async def run_unit(
                 )
                 continue
 
+            if rationale:
+                await _reasoning(campaign_id, unit_id, f"[attempt {attempt}] {rationale}")
+                await db.record_unit_event(unit_id, "codex_rationale", rationale, {"attempt": attempt})
+
             target.write_text(migrated, encoding="utf-8")
             await asyncio.to_thread(_commit_attempt, worktree_path, scope_glob, attempt)
 
@@ -117,6 +121,11 @@ async def run_unit(
 
             await _reasoning(campaign_id, unit_id, f"[attempt {attempt}] Running tests: {seam['testCommand']}")
             passed, log = await runner.run_tests(worktree_path, seam["testCommand"])
+            # Full test output is kept on pass AND fail so the preview view
+            # can show it alongside the migrated file.
+            await db.execute(
+                "UPDATE units SET test_log = $1 WHERE unit_id = $2", log, unit_id
+            )
 
             if passed:
                 async with repo_lock:

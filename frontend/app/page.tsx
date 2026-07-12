@@ -3,11 +3,12 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ApiError, api } from "@/lib/api";
-import type { Candidate, GraphResponse, ManualSeam, Repo, Seam } from "@/lib/types";
+import type { Candidate, GraphResponse, ManualSeam, Plan, Repo, Seam } from "@/lib/types";
 import { matchesAnyGlob } from "@/utils/matchGlob";
 import DependencyGraph from "@/components/DependencyGraph";
 import CandidateList from "@/components/CandidateList";
 import ManualSeamForm from "@/components/ManualSeamForm";
+import PlanIntentForm from "@/components/PlanIntentForm";
 import ModeToggle, { type SeamMode } from "@/components/ModeToggle";
 
 const DEMO_REPO_PATHS = [
@@ -21,7 +22,7 @@ export default function RepoInputPage() {
 
   const [step, setStep] = useState<Step>("input");
   const [repoUrl, setRepoUrl] = useState("");
-  const [mode, setMode] = useState<SeamMode>("guided");
+  const [mode, setMode] = useState<SeamMode>("plan");
   const [error, setError] = useState<string | null>(null);
 
   const [repo, setRepo] = useState<Repo | null>(null);
@@ -30,10 +31,13 @@ export default function RepoInputPage() {
   const [graph, setGraph] = useState<GraphResponse | null>(null);
   const [seam, setSeam] = useState<Seam | null>(null);
   const [creatingSeam, setCreatingSeam] = useState(false);
+  const [plan, setPlan] = useState<Plan | null>(null);
+  const [planning, setPlanning] = useState(false);
 
   const resetSeam = () => {
     setSeam(null);
     setSelectedCandidateId(null);
+    setPlan(null);
   };
 
   async function handleIngest(url: string) {
@@ -96,6 +100,31 @@ export default function RepoInputPage() {
     } finally {
       setCreatingSeam(false);
     }
+  }
+
+  async function generatePlan(intent: string) {
+    if (!repo) return;
+    setPlanning(true);
+    setError(null);
+    setPlan(null);
+    setSeam(null);
+    try {
+      setPlan(await api.createPlan(repo.repoId, intent));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setPlanning(false);
+    }
+  }
+
+  async function submitPlanSeam(confirmed: Plan, testCommand: string) {
+    await submitManualSeam({
+      scopeGlobs: confirmed.scopeGlobs,
+      beforePattern: confirmed.beforePattern,
+      afterPattern: confirmed.afterPattern,
+      invariants: confirmed.invariants,
+      testCommand,
+    });
   }
 
   async function confirmAndLaunch() {
@@ -173,7 +202,15 @@ export default function RepoInputPage() {
             <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
               3. Seam definition
             </h2>
-            {mode === "autonomous" ? (
+            {mode === "plan" ? (
+              <PlanIntentForm
+                plan={plan}
+                planning={planning}
+                creatingSeam={creatingSeam}
+                onGenerate={generatePlan}
+                onConfirm={submitPlanSeam}
+              />
+            ) : mode === "autonomous" ? (
               <CandidateList
                 candidates={candidates}
                 selectedId={selectedCandidateId}

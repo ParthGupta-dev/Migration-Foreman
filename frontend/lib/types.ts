@@ -1,5 +1,6 @@
-// Mirrors PROJECT.md sections 6 (data models) and 7 (contracts) exactly.
-// Do not add fields that aren't in the documented contract.
+// Mirrors the backend contracts (PROJECT.md section 7 plus the flagged
+// additions in backend/main.py: GET /repo/{id}/graph, POST /repo/{id}/plan,
+// and the optional seam overrides for repos without .migration-foreman.json).
 
 export type RepoStatus = "pulling" | "ready" | "failed";
 
@@ -50,6 +51,36 @@ export interface ManualSeam {
 export interface SeamRequest {
   candidateId: string | null;
   manualSeam: ManualSeam | null;
+  // Optional overrides for the candidateId path (repos without a
+  // .migration-foreman.json). Precedence: request > repo config > inferred.
+  beforePattern?: string;
+  afterPattern?: string;
+  invariants?: string[];
+  testCommand?: string;
+}
+
+// --- AI Planning Stage: POST /repo/{id}/plan ---
+
+export type PlanRisk = "low" | "medium" | "high";
+
+export interface Plan {
+  repoId: string;
+  intent: string;
+  migrationName: string;
+  beforePattern: string;
+  afterPattern: string;
+  scopeGlobs: string[];
+  invariants: string[];
+  testCommand: string | null;
+  risk: PlanRisk;
+  breakingChanges: boolean;
+  confidence: number;
+  reasoning: string;
+  // Grounding telemetry, computed against the actual clone:
+  groundedFiles: string[];
+  matchedOccurrences: number;
+  unsupportedFiles: string[];
+  repairedScope: boolean;
 }
 
 export interface Seam {
@@ -93,6 +124,18 @@ export interface Campaign {
   units: Unit[];
 }
 
+export type PreviewFileType = "markdown" | "html" | "css" | "code";
+
+export interface UnitPreview {
+  unitId: string;
+  path: string;
+  fileType: PreviewFileType;
+  language: string | null;
+  before: string | null; // file content on the base branch
+  after: string | null; // file content on the campaign branch (null until merged)
+  testLog: string | null;
+}
+
 export interface FinalizeResult {
   campaignId: string;
   prUrl: string;
@@ -103,6 +146,9 @@ export interface FinalizeResult {
 export interface HealthResponse {
   status: "ok" | "degraded";
   db: "connected" | "unavailable";
+  // Active LLM provider, e.g. "codex:gpt-5-codex", "groq:llama-3.3-70b-versatile",
+  // "mock", or "unconfigured".
+  llm: string;
 }
 
 export interface ApiErrorShape {

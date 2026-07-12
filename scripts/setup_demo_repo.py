@@ -24,8 +24,25 @@ GIT_ID = ["-c", "user.name=Demo Author", "-c", "user.email=demo@example.com"]
 FILES_ROUND_1 = {
     "README.md": """# textkit-demo
 
-Internal text utilities. `legacy_format()` is deprecated in favor of the
-strict `format_text()` — migration pending.
+Internal text utilities.
+
+## Usage
+
+All report and notification text is normalized with `legacy_format`:
+
+```python
+from lib.textkit import legacy_format
+
+print(legacy_format("  hello ", uppercase=True))
+```
+
+## Modules
+
+- `lib/textkit.py` — the text helpers
+- `src/reports.py` — report rendering built on `legacy_format`
+- `src/notifications.py` — notification builder
+
+## Testing
 
 Run tests: `python -m unittest discover -s tests -t . -v`
 """,
@@ -224,8 +241,14 @@ def main() -> None:
 
     if repo.exists():
         import shutil
+        import stat
 
-        shutil.rmtree(repo)
+        def make_writable(func, path, _exc):
+            # Windows: git object files are read-only and block rmtree.
+            Path(path).chmod(stat.S_IWRITE)
+            func(path)
+
+        shutil.rmtree(repo, onerror=make_writable)
     repo.mkdir(parents=True)
 
     subprocess.run(["git", "init", "-b", "main"], cwd=repo, check=True, capture_output=True, text=True)

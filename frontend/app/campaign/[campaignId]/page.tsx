@@ -6,7 +6,9 @@ import { useCampaignSocket } from "@/hooks/useCampaignSocket";
 import { api } from "@/lib/api";
 import type { GraphResponse } from "@/lib/types";
 import DependencyGraph from "@/components/DependencyGraph";
-import UnitStatusTable from "@/components/UnitStatusTable";
+import UnitStatusTable, { type UnitView } from "@/components/UnitStatusTable";
+import UnitPreviewPanel from "@/components/UnitPreviewPanel";
+import DiffView from "@/components/DiffView";
 import ReasoningLog from "@/components/ReasoningLog";
 import EscalationPanel from "@/components/EscalationPanel";
 import { unitStatusNodeColor } from "@/utils/formatUnitStatus";
@@ -21,6 +23,7 @@ export default function LiveCampaignPage() {
     useCampaignSocket(params.campaignId);
 
   const [graph, setGraph] = useState<GraphResponse | null>(null);
+  const [selectedView, setSelectedView] = useState<UnitView>(null);
 
   useEffect(() => {
     if (!repoId) return;
@@ -81,7 +84,11 @@ export default function LiveCampaignPage() {
               <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Units
               </h3>
-              <UnitStatusTable units={campaign.units} />
+              <UnitStatusTable
+                units={campaign.units}
+                selected={selectedView}
+                onSelect={setSelectedView}
+              />
             </div>
             <div className="space-y-2">
               <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -90,6 +97,31 @@ export default function LiveCampaignPage() {
               <ReasoningLog lines={reasoningLog} />
             </div>
           </div>
+
+          {selectedView && (
+            <div className="space-y-2">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                {selectedView.view === "preview" ? "Live preview" : "Unit diff"}
+              </h3>
+              {selectedView.view === "preview" ? (
+                <UnitPreviewPanel
+                  campaignId={params.campaignId}
+                  unitId={selectedView.unitId}
+                />
+              ) : (
+                (() => {
+                  const unit = campaign.units.find(
+                    (candidate) => candidate.unitId === selectedView.unitId
+                  );
+                  return unit?.diff ? (
+                    <DiffView diff={unit.diff} />
+                  ) : (
+                    <p className="text-xs text-slate-600">No diff recorded for this unit.</p>
+                  );
+                })()
+              )}
+            </div>
+          )}
 
           <div className="space-y-2">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">

@@ -27,6 +27,30 @@ class CandidatesOut(BaseModel):
     candidates: list[CandidateOut]
 
 
+class PlanIn(BaseModel):
+    intent: str
+
+
+class PlanOut(BaseModel):
+    repoId: str
+    intent: str
+    migrationName: str
+    beforePattern: str
+    afterPattern: str
+    scopeGlobs: list[str]
+    invariants: list[str]
+    testCommand: str | None
+    risk: str  # low | medium | high
+    breakingChanges: bool
+    confidence: float
+    reasoning: str
+    # Grounding telemetry (computed against the clone, not model estimates):
+    groundedFiles: list[str]
+    matchedOccurrences: int
+    unsupportedFiles: list[str]
+    repairedScope: bool
+
+
 class ManualSeamIn(BaseModel):
     scopeGlobs: list[str]
     beforePattern: str
@@ -38,6 +62,12 @@ class ManualSeamIn(BaseModel):
 class SeamIn(BaseModel):
     candidateId: str | None = None
     manualSeam: ManualSeamIn | None = None
+    # Optional overrides for the candidateId path. Precedence:
+    # request body > .migration-foreman.json > inferred defaults.
+    beforePattern: str | None = None
+    afterPattern: str | None = None
+    invariants: list[str] | None = None
+    testCommand: str | None = None
 
 
 class SeamOut(BaseModel):
@@ -73,6 +103,16 @@ class CampaignOut(BaseModel):
     seamId: str
     status: str
     units: list[UnitOut]
+
+
+class UnitPreviewOut(BaseModel):
+    unitId: str
+    path: str
+    fileType: str  # markdown | html | css | code
+    language: str | None
+    before: str | None  # file content on the base branch
+    after: str | None  # file content on the campaign branch (None if not merged)
+    testLog: str | None
 
 
 class FinalizeOut(BaseModel):

@@ -15,8 +15,26 @@ DATABASE_URL: str = os.getenv(
     "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/migration_foreman"
 )
 GITHUB_TOKEN: str = os.getenv("GITHUB_TOKEN", "")
+
+# --- LLM provider selection (see llm.py) --------------------------------
+# LLM_PROVIDER picks which API drives planning + migration: "codex", "groq",
+# or any custom name backed by the generic LLM_* trio. Empty = auto-detect
+# from whichever key is set.
+LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "").strip().lower()
+
+# OpenAI / Codex (Responses API)
 OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
 CODEX_MODEL: str = os.getenv("CODEX_MODEL", "gpt-5-codex")
+
+# Groq (OpenAI-compatible chat completions)
+GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
+GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_BASE_URL: str = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
+
+# Any other OpenAI-compatible endpoint (LLM_PROVIDER set to a custom name)
+LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")
+LLM_BASE_URL: str = os.getenv("LLM_BASE_URL", "")
+LLM_MODEL: str = os.getenv("LLM_MODEL", "")
 
 # MOCK_CODEX=1 replaces the OpenAI Responses API call with a deterministic
 # local pattern rewrite so the full pipeline (worktrees, tests, retries,

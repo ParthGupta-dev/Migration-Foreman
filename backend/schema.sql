@@ -34,8 +34,12 @@ CREATE TABLE IF NOT EXISTS units (
   attempt      INTEGER NOT NULL DEFAULT 0,
   diff         TEXT,
   failure_log  TEXT,
+  test_log     TEXT,
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Idempotent upgrade for databases created before test_log existed.
+ALTER TABLE units ADD COLUMN IF NOT EXISTS test_log TEXT;
 
 CREATE TABLE IF NOT EXISTS unit_events (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),

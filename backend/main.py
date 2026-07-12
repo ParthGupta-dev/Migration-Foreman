@@ -4,10 +4,13 @@ REST: POST /repo, GET /repo/{id}/candidates, POST /repo/{id}/seam,
       POST /campaign, GET /campaign/{id}, POST /campaign/{id}/finalize
 WS:   /ws/campaign/{id} (server -> client events only)
 
-Flagged contract addition (needs team approval, section 13): GET
-/repo/{id}/graph serves dependency-graph nodes/edges for the frontend's
-React Flow views; section 7 defines the graph visually but gives it no
-endpoint.
+Flagged contract additions (need team approval, section 13):
+- GET /repo/{id}/graph serves dependency-graph nodes/edges for the frontend's
+  React Flow views; section 7 defines the graph visually but gives it no
+  endpoint.
+- POST /repo/{id}/plan is the AI Planning Stage: a natural-language migration
+  intent goes in, a validated seam spec (patterns/scope/confidence) comes out
+  and feeds the existing seam -> campaign pipeline.
 """
 
 import asyncio
@@ -22,12 +25,14 @@ from fastapi.responses import JSONResponse
 
 import config
 import db
+import llm
 import models
 from discovery import candidates as discovery
 from errors import ApiError
-from execution import engine, splitter
+from execution import engine, splitter, worktree
+from planning import planner
 from pr import assembler
-from repo_config import load_repo_config
+from repo_config import infer_test_command, load_repo_config
 from ws import manager
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -47,6 +52,7 @@ app.add_middleware(
 async def startup() -> None:
     config.REPOS_DIR.mkdir(parents=True, exist_ok=True)
     config.WORKTREES_DIR.mkdir(parents=True, exist_ok=True)
+    logger.info("LLM provider: %s", llm.describe())
     try:
         await db.init_pool()
     except Exception as exc:
@@ -88,9 +94,9 @@ def _repo_path(repo_id: str):
 async def health() -> dict[str, str]:
     try:
         await db.execute("SELECT 1")
-        return {"status": "ok", "db": "connected"}
+        return {"status": "ok", "db": "connected", "llm": llm.describe()}
     except Exception:
-        return {"status": "degraded", "db": "unavailable"}
+        return {"status": "degraded", "db": "unavailable", "llm": llm.describe()}
 
 
 # --- Repo ingestion -----------------------------------------------------
@@ -175,6 +181,33 @@ async def get_graph(repo_id: str) -> models.GraphOut:
     )
 
 
+@app.post("/repo/{repo_id}/plan", response_model=models.PlanOut)
+async def create_plan(repo_id: str, body: models.PlanIn) -> models.PlanOut:
+    """FLAGGED contract addition — AI Planning Stage.
+
+    Turns a natural-language migration intent into a validated seam spec
+    (beforePattern/afterPattern/scopeGlobs/confidence). The result is advisory
+    and stateless: the client submits it via POST /repo/{id}/seam, either as a
+    manualSeam or as candidateId overrides.
+    """
+    row = await _get_ready_repo(repo_id)
+    repo_id = str(row["repo_id"])
+    if not body.intent.strip():
+        raise ApiError(400, "plan_intent_invalid", "intent must be a non-empty string")
+
+    repo_path = _repo_path(repo_id)
+    try:
+        plan = await asyncio.to_thread(planner.plan_migration, repo_path, body.intent)
+    except planner.PlanValidationError as exc:
+        raise ApiError(400, exc.code, str(exc))
+    except planner.PlanGenerationError as exc:
+        raise ApiError(502, "plan_generation_failed", str(exc))
+
+    if plan["testCommand"] is None:
+        plan["testCommand"] = infer_test_command(repo_path)
+    return models.PlanOut(repoId=repo_id, intent=body.intent, **plan)
+
+
 @app.post("/repo/{repo_id}/seam", response_model=models.SeamOut)
 async def create_seam(repo_id: str, body: models.SeamIn) -> models.SeamOut:
     row = await _get_ready_repo(repo_id)
@@ -205,15 +238,33 @@ async def create_seam(repo_id: str, body: models.SeamIn) -> models.SeamOut:
                 400, "candidate_blacklisted",
                 "Candidate touches blacklisted paths and cannot be selected",
             )
-        repo_conf = load_repo_config(_repo_path(repo_id))
-        if repo_conf is None:
-            raise ApiError(
-                400, "seam_config_missing",
-                f"Repo has no {config.REPO_CONFIG_FILENAME}; submit a manualSeam instead",
-            )
+        # Seam fields resolve as: request-body overrides > repo config file
+        # (advanced override, no longer a prerequisite) > inferred defaults.
+        repo_conf = load_repo_config(_repo_path(repo_id)) or {}
         scope_globs = cand["scopeGlobs"]
-        before, after = repo_conf["beforePattern"], repo_conf["afterPattern"]
-        invariants, test_command = repo_conf["invariants"], repo_conf["testCommand"]
+        before = body.beforePattern or repo_conf.get("beforePattern")
+        after = body.afterPattern or repo_conf.get("afterPattern")
+        invariants = (
+            body.invariants if body.invariants is not None
+            else repo_conf.get("invariants", [])
+        )
+        test_command = (
+            body.testCommand
+            or repo_conf.get("testCommand")
+            or infer_test_command(_repo_path(repo_id))
+        )
+        if not before or not after:
+            raise ApiError(
+                400, "seam_patterns_missing",
+                "No before/after patterns for this candidate: pass beforePattern/"
+                f"afterPattern in the request body or add {config.REPO_CONFIG_FILENAME} to the repo",
+            )
+        if not test_command:
+            raise ApiError(
+                400, "seam_test_command_missing",
+                "Could not infer a test command for this repo: pass testCommand "
+                f"in the request body or add {config.REPO_CONFIG_FILENAME}",
+            )
 
     seam_row = await db.fetchrow(
         "INSERT INTO seams (repo_id, scope_globs, before_pattern, after_pattern, invariants, test_command) "
@@ -300,6 +351,65 @@ async def get_campaign(campaign_id: str) -> models.CampaignOut:
             )
             for unit in units
         ],
+    )
+
+
+_PREVIEW_MAX_CHARS = 200_000
+
+_PREVIEW_TYPES = {
+    ".md": ("markdown", "markdown"), ".markdown": ("markdown", "markdown"),
+    ".html": ("html", "html"), ".htm": ("html", "html"),
+    ".css": ("css", "css"),
+    ".py": ("code", "python"), ".js": ("code", "javascript"),
+    ".jsx": ("code", "jsx"), ".ts": ("code", "typescript"),
+    ".tsx": ("code", "tsx"), ".mjs": ("code", "javascript"),
+    ".cjs": ("code", "javascript"), ".json": ("code", "json"),
+}
+
+
+@app.get("/campaign/{campaign_id}/unit/{unit_id}/preview", response_model=models.UnitPreviewOut)
+async def unit_preview(campaign_id: str, unit_id: str) -> models.UnitPreviewOut:
+    """Before/after file contents for a unit, plus its full test output.
+
+    `before` comes from the repo's base branch, `after` from the campaign
+    branch (null until the unit has merged, e.g. escalated units). The
+    frontend renders these per file type (markdown/html/css/code).
+    """
+    campaign_id = _require_uuid(campaign_id, "campaign_not_found")
+    unit_id = _require_uuid(unit_id, "unit_not_found")
+    unit = await db.fetchrow(
+        "SELECT * FROM units WHERE unit_id = $1 AND campaign_id = $2", unit_id, campaign_id
+    )
+    if unit is None:
+        raise ApiError(404, "unit_not_found", f"No unit {unit_id} in campaign {campaign_id}")
+    campaign = await db.fetchrow("SELECT * FROM campaigns WHERE campaign_id = $1", campaign_id)
+    seam = await db.fetchrow("SELECT * FROM seams WHERE seam_id = $1", campaign["seam_id"])
+    repo_path = _repo_path(str(seam["repo_id"]))
+    if not repo_path.is_dir():
+        raise ApiError(409, "repo_missing_on_disk", "Repo clone missing; re-ingest via POST /repo")
+
+    path = unit["scope_glob"]
+
+    def content_at(ref: str) -> str | None:
+        from shell import run_git
+
+        result = run_git(["show", f"{ref}:{path}"], cwd=repo_path)
+        return result.stdout[:_PREVIEW_MAX_CHARS] if result.ok else None
+
+    base_branch = await asyncio.to_thread(worktree.default_branch, repo_path)
+    before = await asyncio.to_thread(content_at, base_branch)
+    after = await asyncio.to_thread(content_at, f"mf/campaign-{campaign_id[:8]}")
+
+    suffix = "." + path.rsplit(".", 1)[-1].lower() if "." in path else ""
+    file_type, language = _PREVIEW_TYPES.get(suffix, ("code", None))
+    return models.UnitPreviewOut(
+        unitId=unit_id,
+        path=path,
+        fileType=file_type,
+        language=language,
+        before=before,
+        after=after,
+        testLog=unit["test_log"],
     )
 
 

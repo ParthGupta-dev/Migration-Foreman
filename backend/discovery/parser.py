@@ -12,6 +12,10 @@ from pathlib import Path
 
 SUPPORTED_EXTENSIONS = {".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}
 
+# Migration units and planner grounding also cover non-code assets (docs,
+# markup, styles) — the dependency graph itself stays code-only.
+SCANNABLE_EXTENSIONS = SUPPORTED_EXTENSIONS | {".md", ".markdown", ".html", ".htm", ".css"}
+
 SKIP_DIRS = {
     ".git",
     "node_modules",
@@ -32,9 +36,17 @@ _JS_REQUIRE = re.compile(r"""require\(\s*['"]([^'"]+)['"]\s*\)""")
 
 
 def list_source_files(repo_path: Path) -> list[Path]:
+    return _list_files(repo_path, SUPPORTED_EXTENSIONS)
+
+
+def list_scannable_files(repo_path: Path) -> list[Path]:
+    return _list_files(repo_path, SCANNABLE_EXTENSIONS)
+
+
+def _list_files(repo_path: Path, extensions: set[str]) -> list[Path]:
     files: list[Path] = []
     for path in sorted(repo_path.rglob("*")):
-        if not path.is_file() or path.suffix not in SUPPORTED_EXTENSIONS:
+        if not path.is_file() or path.suffix not in extensions:
             continue
         rel_parts = path.relative_to(repo_path).parts
         if any(part in SKIP_DIRS for part in rel_parts):
