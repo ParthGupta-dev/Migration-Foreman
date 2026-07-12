@@ -560,31 +560,33 @@ This is the team's live project tracker. Each person checks off tasks/subtasks a
 
 **Do Not Modify:** `backend/`, database schema, API/WebSocket contracts (section 7) without team approval.
 
+> **Resolved (2026-07-13):** this was originally built in a `frontend_2/` folder. The old untouched `create-next-app` scaffold has since been removed and `frontend_2/` renamed to `frontend/`, so the folder structure in section 8 is accurate again.
+
 **Build Tracker:**
 
-- [ ] Project scaffolding
-  - [ ] Init Next.js 14 with App Router
-  - [ ] Configure Tailwind + React Flow + Recharts
-  - [ ] Set up native WebSocket client
-  - [ ] Connect to backend base URL via env variable
+- [x] Project scaffolding
+  - [x] Init Next.js 14 with App Router
+  - [x] Configure Tailwind + React Flow + Recharts
+  - [x] Set up native WebSocket client
+  - [x] Connect to backend base URL via env variable
 
-- [ ] Repo Input & Seam Review view
-  - [ ] Repo URL input field (or pre-loaded demo repo selector)
-  - [ ] Mode selector — Guided / Autonomous
-  - [ ] Seam definition display — scope globs, before/after pattern, invariants, test command
-  - [ ] Pre-migration dependency graph — React Flow, nodes = files/modules, edges = dependencies, highlight blast radius
-  - [ ] Confirm / Edit seam button before campaign starts
+- [x] Repo Input & Seam Review view
+  - [x] Repo URL input field (or pre-loaded demo repo selector)
+  - [x] Mode selector — Guided / Autonomous
+  - [x] Seam definition display — scope globs, before/after pattern, invariants, test command
+  - [x] Pre-migration dependency graph — React Flow, nodes = files/modules, edges = dependencies, highlight blast radius
+  - [x] Confirm / Edit seam button before campaign starts
 
-- [ ] Live Campaign view
-  - [ ] Unit status table — unit ID, status, attempt count
-  - [ ] Live dependency graph — same graph as seam review, nodes recolor as units resolve
-  - [ ] Mini terminal/log panel — streams Codex reasoning + tool output per active unit
-  - [ ] Escalation panel — lists units that hit max retries, shows diff + failure log per escalated unit
+- [x] Live Campaign view
+  - [x] Unit status table — status, attempt count *(shows `scopeGlob` as the unit identifier instead of raw `unitId`, for readability — flagged deviation)*
+  - [x] Live dependency graph — same graph as seam review, nodes recolor as units resolve
+  - [x] Mini terminal/log panel — streams Codex reasoning + tool output per active unit *(built and wired to `unit_reasoning`; not visually confirmed with live text in the verification pass since the demo campaign resolved very fast)*
+  - [x] Escalation panel — lists units that hit max retries, shows diff + failure log per escalated unit
 
-- [ ] Campaign Summary view
-  - [ ] Final tally — units passed / failed / escalated
-  - [ ] Link to opened PR
-  - [ ] Per-unit diff viewer (accepted and escalated units)
+- [x] Campaign Summary view
+  - [x] Final tally — units passed / failed / escalated
+  - [x] Link to opened PR *(wired to `POST /campaign/{id}/finalize`; not click-tested in verification to avoid a real GitHub push against a repo we don't own)*
+  - [x] Per-unit diff viewer (accepted and escalated units)
 
 ---
 
