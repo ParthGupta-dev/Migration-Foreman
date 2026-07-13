@@ -8,9 +8,10 @@ Flagged contract additions (need team approval, section 13):
 - GET /repo/{id}/graph serves dependency-graph nodes/edges for the frontend's
   React Flow views; section 7 defines the graph visually but gives it no
   endpoint.
-- POST /repo/{id}/plan is the AI Planning Stage: a natural-language migration
-  intent goes in, a validated seam spec (patterns/scope/confidence) comes out
-  and feeds the existing seam -> campaign pipeline.
+- POST /repo/{id}/discover is the AI planning pipeline (shared by AI
+  Discovery and Autonomous modes): a natural-language objective goes in,
+  grounded candidate seams come out, and human-confirmed seams feed the
+  existing seam -> campaign pipeline.
 """
 
 import asyncio
@@ -21,18 +22,24 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.requests import Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 import config
 import db
+import github_oauth
 import llm
 import models
+from discovery import blacklist
 from discovery import candidates as discovery
 from errors import ApiError
 from execution import engine, splitter, worktree
-from planning import planner, seam_discovery
+from planning import seam_discovery
 from pr import assembler, local_apply
-from repo_config import infer_test_command, load_repo_config
+from repo_config import (
+    infer_test_command,
+    infer_test_command_for_files,
+    load_repo_config,
+)
 from ws import manager
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -43,6 +50,9 @@ app = FastAPI(title="Migration Foreman Backend")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[config.FRONTEND_BASE_URL, "http://localhost:3000"],
+    # Credentialed requests carry the mf_session cookie so /github/status and
+    # /finalize can see the OAuth session (origins are explicit, never "*").
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -181,33 +191,6 @@ async def get_graph(repo_id: str) -> models.GraphOut:
     )
 
 
-@app.post("/repo/{repo_id}/plan", response_model=models.PlanOut)
-async def create_plan(repo_id: str, body: models.PlanIn) -> models.PlanOut:
-    """FLAGGED contract addition — AI Planning Stage.
-
-    Turns a natural-language migration intent into a validated seam spec
-    (beforePattern/afterPattern/scopeGlobs/confidence). The result is advisory
-    and stateless: the client submits it via POST /repo/{id}/seam, either as a
-    manualSeam or as candidateId overrides.
-    """
-    row = await _get_ready_repo(repo_id)
-    repo_id = str(row["repo_id"])
-    if not body.intent.strip():
-        raise ApiError(400, "plan_intent_invalid", "intent must be a non-empty string")
-
-    repo_path = _repo_path(repo_id)
-    try:
-        plan = await asyncio.to_thread(planner.plan_migration, repo_path, body.intent)
-    except planner.PlanValidationError as exc:
-        raise ApiError(400, exc.code, str(exc))
-    except planner.PlanGenerationError as exc:
-        raise ApiError(502, "plan_generation_failed", str(exc))
-
-    if plan["testCommand"] is None:
-        plan["testCommand"] = infer_test_command(repo_path)
-    return models.PlanOut(repoId=repo_id, intent=body.intent, **plan)
-
-
 @app.post("/repo/{repo_id}/discover", response_model=models.DiscoveryOut)
 async def discover_seams(repo_id: str, body: models.DiscoverIn) -> models.DiscoveryOut:
     """FLAGGED contract addition — AI Seam Discovery.
@@ -232,10 +215,15 @@ async def discover_seams(repo_id: str, body: models.DiscoverIn) -> models.Discov
     except seam_discovery.DiscoveryError as exc:
         raise ApiError(502, "seam_discovery_failed", str(exc))
 
-    test_fallback = infer_test_command(repo_path)
+    # Verification command inference: model suggestion wins; otherwise a
+    # seam-scoped inferred command (monorepo-aware). Still-None commands are
+    # a legal outcome — the UI requires the human to fill them before any
+    # mode (including Autonomous) can execute that seam.
     for seam in discovery_result["seams"]:
         if seam["testCommand"] is None:
-            seam["testCommand"] = test_fallback
+            seam["testCommand"] = infer_test_command_for_files(
+                repo_path, seam["groundedFiles"]
+            )
     return models.DiscoveryOut(repoId=repo_id, **discovery_result)
 
 
@@ -333,6 +321,22 @@ async def create_campaign(body: models.CampaignIn) -> models.CampaignCreatedOut:
     if not unit_files:
         raise ApiError(400, "seam_scope_empty", "Seam scope globs matched no files")
 
+    # Server-side blacklist gate for EVERY path (manual seams included):
+    # blacklisted files never become executable units, regardless of how the
+    # seam was created or what its scope globs match.
+    extra_blacklist = (load_repo_config(repo_path) or {}).get("blacklist")
+    allowed = [
+        rel for rel in unit_files
+        if not blacklist.is_blacklisted(rel, extra_blacklist)
+    ]
+    if not allowed:
+        raise ApiError(
+            400, "seam_scope_blacklisted",
+            "Every file matched by this seam is blacklisted "
+            "(auth/, payments/, migrations/, secrets, or repo-config blacklist)",
+        )
+    unit_files = allowed
+
     campaign_row = await db.fetchrow(
         "INSERT INTO campaigns (seam_id, status) VALUES ($1, 'running') RETURNING campaign_id",
         seam_id,
@@ -367,10 +371,12 @@ async def get_campaign(campaign_id: str) -> models.CampaignOut:
     units = await db.fetch(
         "SELECT * FROM units WHERE campaign_id = $1 ORDER BY created_at", campaign_id
     )
+    seam = await db.fetchrow("SELECT test_command FROM seams WHERE seam_id = $1", campaign["seam_id"])
     return models.CampaignOut(
         campaignId=campaign_id,
         seamId=str(campaign["seam_id"]),
         status=campaign["status"],
+        testCommand=seam["test_command"] if seam else "",
         units=[
             models.UnitOut(
                 unitId=str(unit["unit_id"]),
@@ -508,20 +514,22 @@ async def apply_campaign_locally(campaign_id: str) -> models.ApplyOut:
 
 @app.post("/campaign/{campaign_id}/finalize", response_model=models.FinalizeOut)
 async def finalize_campaign(
-    campaign_id: str, body: models.FinalizeIn | None = None
+    request: Request, campaign_id: str, body: models.FinalizeIn | None = None
 ) -> models.FinalizeOut:
     """Optional publishing path: push the campaign branch and open a GitHub PR.
 
-    The token comes from the request body (connect-GitHub UI flow) or falls
-    back to the GITHUB_TOKEN env var.
+    Token precedence: request body (manual-token UI) > OAuth session token
+    ("Connect GitHub" flow) > GITHUB_TOKEN env var (assembler's own fallback).
     """
     ctx = await _completed_campaign_context(campaign_id, "finalize")
+    session_id = request.cookies.get(github_oauth.SESSION_COOKIE)
+    token = (body.githubToken if body else None) or github_oauth.get_token(session_id)
     try:
         pr_url = await asyncio.to_thread(
             assembler.create_pr,
             ctx["repoUrl"], ctx["repoPath"], ctx["campaignBranch"],
             ctx["accepted"], ctx["escalated"],
-            body.githubToken if body else None,
+            token,
         )
     except assembler.PrCreationError as exc:
         # Fallback plan: frontend shows the aggregated diffs instead.
@@ -535,10 +543,85 @@ async def finalize_campaign(
     )
 
 
+# --- GitHub connection (OAuth web flow + status) --------------------------
+
+
 @app.get("/github/status", response_model=models.GithubStatusOut)
-async def github_status() -> models.GithubStatusOut:
-    """Whether the backend already has GitHub credentials (env GITHUB_TOKEN)."""
-    return models.GithubStatusOut(connected=bool(config.GITHUB_TOKEN))
+async def github_status(request: Request) -> models.GithubStatusOut:
+    """Whether this session (OAuth) or the backend (env GITHUB_TOKEN) can PR."""
+    session_id = request.cookies.get(github_oauth.SESSION_COOKIE)
+    oauth_token = github_oauth.get_token(session_id)
+    return models.GithubStatusOut(
+        connected=bool(oauth_token or config.GITHUB_TOKEN),
+        username=github_oauth.get_username(session_id),
+        oauthAvailable=github_oauth.configured(),
+    )
+
+
+@app.get("/github/oauth/start")
+async def github_oauth_start(request: Request, next: str = "/") -> RedirectResponse:
+    """Step 1 of "Connect GitHub": redirect the browser to GitHub's authorize
+    screen with a session-bound CSRF state. `next` is the frontend path to
+    return to after the dance."""
+    if not github_oauth.configured():
+        raise ApiError(
+            400, "github_oauth_not_configured",
+            "GitHub OAuth is not configured: set GITHUB_OAUTH_CLIENT_ID and "
+            "GITHUB_OAUTH_CLIENT_SECRET (register an OAuth App on GitHub), or "
+            "use the manual token field instead",
+        )
+    if not next.startswith("/"):  # only ever redirect back into our own frontend
+        next = "/"
+    session_id = request.cookies.get(github_oauth.SESSION_COOKIE) or github_oauth.new_session_id()
+    authorize_url = github_oauth.begin(session_id, next)
+    response = RedirectResponse(authorize_url, status_code=302)
+    response.set_cookie(
+        github_oauth.SESSION_COOKIE, session_id,
+        httponly=True, samesite="lax", path="/",
+    )
+    return response
+
+
+def _frontend_redirect(next_path: str, outcome: str) -> RedirectResponse:
+    separator = "&" if "?" in next_path else "?"
+    return RedirectResponse(
+        f"{config.FRONTEND_BASE_URL}{next_path}{separator}github={outcome}",
+        status_code=302,
+    )
+
+
+@app.get("/github/callback")
+async def github_oauth_callback(
+    request: Request,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+) -> RedirectResponse:
+    """Step 2: GitHub redirects here. Validate state, exchange the code, store
+    the token server-side, bounce the browser back to the frontend. Every
+    failure path redirects with ?github=<outcome> — never a raw error page."""
+    pending = github_oauth.pop_state(state) if state else None
+    next_path = pending["next"] if pending else "/"
+
+    if error:  # user cancelled / denied on the GitHub screen
+        return _frontend_redirect(next_path, "cancelled")
+    if pending is None or not code:
+        logger.warning("GitHub callback rejected: unknown/expired state")
+        return _frontend_redirect(next_path, "error")
+    if request.cookies.get(github_oauth.SESSION_COOKIE) != pending["session"]:
+        logger.warning("GitHub callback rejected: state belongs to another session")
+        return _frontend_redirect(next_path, "error")
+
+    try:
+        token = await asyncio.to_thread(github_oauth.exchange_code, code)
+    except github_oauth.OAuthError as exc:
+        logger.error("GitHub code exchange failed: %s", exc)
+        return _frontend_redirect(next_path, "error")
+
+    username = await asyncio.to_thread(github_oauth.fetch_username, token)
+    github_oauth.store_token(pending["session"], token, username)
+    logger.info("GitHub connected via OAuth as %s", username or "<unknown>")
+    return _frontend_redirect(next_path, "connected")
 
 
 # --- WebSocket ----------------------------------------------------------

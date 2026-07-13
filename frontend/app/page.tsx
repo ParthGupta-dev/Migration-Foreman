@@ -85,9 +85,10 @@ export default function RepoInputPage() {
   }
 
   // Both AI modes run the exact same planning pipeline (POST /repo/{id}/
-  // discover). The only behavioural difference: "discover" pauses on the
-  // approval screen, "autonomous" auto-approves every discovered seam and
-  // continues straight to execution.
+  // discover). The only behavioural difference is the amount of interaction
+  // on the result: "discover" offers full per-seam approve/edit/reject,
+  // "autonomous" presents the discovered seams for a single confirm-and-
+  // execute click. Neither executes without human confirmation.
   async function runDiscovery(objective: string) {
     if (!repo) return;
     setDiscovering(true);
@@ -95,17 +96,7 @@ export default function RepoInputPage() {
     setDiscovery(null);
     setSeam(null);
     try {
-      const result = await api.discoverSeams(repo.repoId, objective);
-      setDiscovery(result);
-      if (mode === "autonomous") {
-        const executable = result.seams.filter((seam) => seam.testCommand);
-        if (executable.length === 0) {
-          throw new Error(
-            "Autonomous mode cannot proceed: no discovered seam has a test command"
-          );
-        }
-        await approveDiscoveredSeams(executable);
-      }
+      setDiscovery(await api.discoverSeams(repo.repoId, objective));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
     } finally {

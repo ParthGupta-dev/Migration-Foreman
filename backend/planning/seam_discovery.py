@@ -32,6 +32,7 @@ import llm
 from discovery import graph as depgraph
 from discovery import parser
 from planning import planner
+from repo_config import load_repo_config
 
 logger = logging.getLogger("migration_foreman.seam_discovery")
 
@@ -122,13 +123,14 @@ def discover_seams(repo_path: Path, objective: str) -> dict:
     """
     summary = analyze_repository(repo_path)
     proposals = _generate(repo_path, objective, summary)
+    extra_blacklist = (load_repo_config(repo_path) or {}).get("blacklist")
 
     seams: list[dict] = []
     dropped: list[dict] = []
     for index, proposal in enumerate(proposals):
         title = str(proposal.get("title") or "").strip() or f"Seam {index + 1}"
         try:
-            grounded = planner._validate(repo_path, proposal)
+            grounded = planner._validate(repo_path, proposal, extra_blacklist)
         except planner.PlanValidationError as exc:
             logger.info("Discovery dropped seam %r: %s", title, exc)
             dropped.append({"title": title, "reason": str(exc)})
@@ -181,7 +183,10 @@ def _generate(repo_path: Path, objective: str, summary: dict) -> list[dict]:
     if config.MOCK_CODEX:
         # Offline path: the single-seam mock planner becomes a one-seam
         # discovery so the approval flow still exercises end to end.
-        proposal = planner._mock_plan(objective)
+        try:
+            proposal = planner._mock_plan(objective)
+        except ValueError as exc:
+            raise DiscoveryError(str(exc)) from exc
         proposal["title"] = proposal.pop("migrationName")
         proposal["description"] = "MOCK_CODEX single-seam decomposition of the objective."
         proposal["dependsOn"] = []

@@ -1,59 +1,26 @@
-"""AI Planning Stage: natural-language migration intent -> validated seam spec.
+"""Seam grounding & validation library for the AI planning pipeline.
 
-Sits between graph/metadata construction and candidate/seam selection. Codex
-receives the user's intent ("Upgrade requests to httpx") plus the repo's file
-tree and returns a proposed seam: beforePattern, afterPattern, scopeGlobs,
-invariants, optional testCommand, a confidence score, and a rationale.
+This module is the single place where a model-proposed seam is checked
+against reality before it can reach the pipeline: the beforePattern must
+occur in at least one source file, and scope globs that match nothing (or
+miss every occurrence) are repaired to the files where the pattern actually
+appears.
 
-The proposal is then grounded against the actual clone before it reaches the
-pipeline: the beforePattern must occur in at least one source file, and scope
-globs that match nothing (or miss every occurrence) are repaired to the files
-where the pattern actually appears. A plan that survives validation can be
-submitted verbatim as a manualSeam or as candidateId overrides.
-
-MOCK_CODEX=1: the API call is replaced by parsing "migrate X to Y"-shaped
-intents directly, so the planning stage runs offline like the rest of the
-pipeline.
+Generation lives in planning/seam_discovery.py (POST /repo/{id}/discover) —
+the one planning implementation shared by AI Discovery and Autonomous modes.
+This module supplies its `_validate` grounding pass and the `_mock_plan`
+offline stand-in (MOCK_CODEX=1 parses "migrate X to Y"-shaped intents
+directly so the pipeline runs without a key).
 """
 
 import logging
 import re
 from pathlib import Path
 
-import config
-import llm
-from discovery import parser
+from discovery import blacklist, parser
 from execution import splitter
 
 logger = logging.getLogger("migration_foreman.planner")
-
-_MAX_TREE_FILES = 300
-
-_PROMPT_TEMPLATE = """You are a migration planning agent. Turn the user's migration intent into a
-precise, mechanical migration specification for this repository.
-
-User migration intent: {intent}
-
-Repository source files:
-{tree}
-
-Rules:
-- beforePattern must be a Python regex (or literal string) that occurs in the
-  CURRENT code shown above — it identifies what to migrate away from.
-- afterPattern is the replacement the migration moves to.
-- scopeGlobs select the files to migrate (e.g. "src/**/*.py").
-- risk is your judgment of how likely this migration is to break behavior.
-- confidence is your 0.0-1.0 estimate that this spec captures the intent.
-- reasoning must explain WHY: why this migration is worth doing, why these
-  patterns capture it, and what impact/breakage you expect.
-
-Return ONLY strict JSON, no markdown fences, exactly this shape:
-{{"migrationName": "Short Title Like 'Requests -> HTTPX'",
-  "beforePattern": "...", "afterPattern": "...", "scopeGlobs": ["..."],
-  "invariants": ["..."], "testCommand": "..." or null,
-  "risk": "low" | "medium" | "high", "breakingChanges": true or false,
-  "confidence": 0.0, "reasoning": "two to four sentences"}}
-"""
 
 # "upgrade/migrate/replace/convert/switch X to/with Y" or bare "X -> Y"
 _MOCK_INTENT = re.compile(
@@ -64,51 +31,16 @@ _MOCK_INTENT = re.compile(
 _MOCK_ARROW = re.compile(r"['\"`]?([\w.\-]+)['\"`]?\s*->\s*['\"`]?([\w.\-]+)['\"`]?")
 
 
-class PlanGenerationError(Exception):
-    """Codex failed to produce a parseable plan."""
-
-
 class PlanValidationError(Exception):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
 
 
-def plan_migration(repo_path: Path, intent: str) -> dict:
-    """Generate a plan from the intent, then ground it against the clone."""
-    plan = _generate(repo_path, intent)
-    return _validate(repo_path, plan)
-
-
-def _generate(repo_path: Path, intent: str) -> dict:
-    if config.MOCK_CODEX:
-        return _mock_plan(intent)
-
-    files = [
-        file.relative_to(repo_path).as_posix()
-        for file in parser.list_scannable_files(repo_path)
-    ]
-    tree = "\n".join(files[:_MAX_TREE_FILES])
-    if len(files) > _MAX_TREE_FILES:
-        tree += f"\n... and {len(files) - _MAX_TREE_FILES} more files"
-
-    prompt = _PROMPT_TEMPLATE.format(intent=intent, tree=tree)
-    try:
-        # complete_json handles JSON mode, lenient extraction, and one
-        # valid-JSON-only retry before giving up (see llm.complete_json).
-        plan = llm.complete_json(prompt)
-    except llm.LlmError as exc:
-        raise PlanGenerationError(f"Planning invocation failed: {exc}") from exc
-
-    if not isinstance(plan, dict):
-        raise PlanGenerationError("Model plan is not a JSON object")
-    return plan
-
-
 def _mock_plan(intent: str) -> dict:
     match = _MOCK_INTENT.search(intent) or _MOCK_ARROW.search(intent)
     if match is None:
-        raise PlanGenerationError(
+        raise ValueError(
             "MOCK_CODEX planner could not parse the intent; phrase it like "
             "'migrate <before> to <after>'"
         )
@@ -131,7 +63,9 @@ def _mock_plan(intent: str) -> dict:
     }
 
 
-def _validate(repo_path: Path, plan: dict) -> dict:
+def _validate(
+    repo_path: Path, plan: dict, extra_blacklist: list[str] | None = None
+) -> dict:
     before = str(plan.get("beforePattern") or "").strip()
     after = str(plan.get("afterPattern") or "").strip()
     if not before or not after:
@@ -154,16 +88,21 @@ def _validate(repo_path: Path, plan: dict) -> dict:
     except re.error:
         count_in = lambda text: text.count(before)
 
-    # occurrence census: repo-relative path -> match count
+    # occurrence census: repo-relative path -> match count. Blacklisted paths
+    # (auth/, payments/, migrations/, secrets + repo-config extras) are
+    # excluded here so no discovered seam can ever ground into them.
     occurrences: dict[str, int] = {}
     for file in parser.list_scannable_files(repo_path):
+        rel = file.relative_to(repo_path).as_posix()
+        if blacklist.is_blacklisted(rel, extra_blacklist):
+            continue
         try:
             text = file.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
         count = count_in(text)
         if count:
-            occurrences[file.relative_to(repo_path).as_posix()] = count
+            occurrences[rel] = count
     if not occurrences:
         raise PlanValidationError(
             "plan_pattern_not_found",

@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ApiError, api } from "@/lib/api";
-import type { ApplyResult, FinalizeResult } from "@/lib/types";
+import { ApiError, api, githubOauthStartUrl } from "@/lib/api";
+import type { ApplyResult, FinalizeResult, GithubStatus } from "@/lib/types";
 
 interface CompletionPanelProps {
   campaignId: string;
@@ -10,10 +10,11 @@ interface CompletionPanelProps {
   escalatedUnits: number;
 }
 
-// UI-supplied GitHub token ("connect GitHub"), kept for this browser session
-// only and sent per finalize request. A backend GITHUB_TOKEN also counts as
-// connected. OAuth is the intended long-term flow; the token input is the
-// interim implementation.
+// "Connect GitHub" is the OAuth web flow when the backend has an OAuth App
+// configured (githubStatus.oauthAvailable): the browser authorizes on
+// github.com and the token stays server-side, keyed to the session cookie.
+// Fallbacks that both remain live: a backend GITHUB_TOKEN env var, and this
+// manually pasted token kept in sessionStorage and sent per finalize request.
 const GITHUB_TOKEN_KEY = "mf-github-token";
 
 const buttonPrimary =
@@ -30,10 +31,11 @@ export default function CompletionPanel({
   const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
 
-  const [backendConnected, setBackendConnected] = useState(false);
+  const [githubStatus, setGithubStatus] = useState<GithubStatus | null>(null);
   const [sessionToken, setSessionToken] = useState("");
   const [tokenInput, setTokenInput] = useState("");
   const [showConnect, setShowConnect] = useState(false);
+  const [oauthNotice, setOauthNotice] = useState<string | null>(null);
 
   const [finalizeResult, setFinalizeResult] = useState<FinalizeResult | null>(null);
   const [finalizing, setFinalizing] = useState(false);
@@ -42,11 +44,35 @@ export default function CompletionPanel({
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    api.githubStatus().then((s) => setBackendConnected(s.connected)).catch(() => {});
+    api.githubStatus().then(setGithubStatus).catch(() => {});
     setSessionToken(sessionStorage.getItem(GITHUB_TOKEN_KEY) ?? "");
+
+    // Landing back from the OAuth redirect: ?github=connected|cancelled|error
+    const params = new URLSearchParams(window.location.search);
+    const outcome = params.get("github");
+    if (outcome) {
+      if (outcome === "cancelled") {
+        setOauthNotice("GitHub authorization was cancelled — still disconnected.");
+      } else if (outcome === "error") {
+        setOauthNotice("GitHub connection failed — try again or paste a token instead.");
+      }
+      params.delete("github");
+      const query = params.toString();
+      window.history.replaceState(
+        null, "", window.location.pathname + (query ? `?${query}` : "")
+      );
+    }
   }, []);
 
-  const githubConnected = backendConnected || sessionToken.length > 0;
+  const githubConnected = (githubStatus?.connected ?? false) || sessionToken.length > 0;
+
+  function handleOauthConnect() {
+    // Full-page navigation: GitHub renders its authorize screen, then the
+    // backend callback redirects straight back to this page.
+    window.location.href = githubOauthStartUrl(
+      window.location.pathname + window.location.search
+    );
+  }
 
   async function handleApply() {
     setApplying(true);
@@ -214,7 +240,12 @@ export default function CompletionPanel({
           ) : githubConnected ? (
             <>
               <p className="text-xs text-green-400">
-                ● GitHub connected{sessionToken ? " (this session)" : " (server)"}
+                ● GitHub connected
+                {githubStatus?.username
+                  ? ` as ${githubStatus.username}`
+                  : sessionToken
+                    ? " (this session)"
+                    : " (server)"}
               </p>
               <button
                 type="button"
@@ -256,6 +287,23 @@ export default function CompletionPanel({
                 </button>
               </div>
             </div>
+          ) : githubStatus?.oauthAvailable ? (
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={handleOauthConnect}
+                className={`w-full ${buttonSecondary}`}
+              >
+                Connect GitHub
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowConnect(true)}
+                className="text-xs text-slate-500 hover:text-slate-300"
+              >
+                …or paste a personal access token instead
+              </button>
+            </div>
           ) : (
             <button
               type="button"
@@ -265,6 +313,7 @@ export default function CompletionPanel({
               Connect GitHub
             </button>
           )}
+          {oauthNotice && <p className="text-xs text-amber-400">{oauthNotice}</p>}
           {finalizeError && (
             <p className="text-sm text-red-400">
               PR creation failed ({finalizeError}) — apply locally instead, or use

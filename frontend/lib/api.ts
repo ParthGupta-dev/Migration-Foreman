@@ -10,7 +10,6 @@ import type {
   GithubStatus,
   GraphResponse,
   HealthResponse,
-  Plan,
   Repo,
   Seam,
   SeamRequest,
@@ -37,6 +36,9 @@ async function request<T>(
     method,
     headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
+    // Send the mf_session cookie so the backend can see the GitHub OAuth
+    // session on /github/status and /campaign/{id}/finalize.
+    credentials: "include",
   });
 
   if (!res.ok) {
@@ -63,9 +65,6 @@ export const api = {
 
   getGraph: (repoId: string) =>
     request<GraphResponse>("GET", `/repo/${repoId}/graph`),
-
-  createPlan: (repoId: string, intent: string) =>
-    request<Plan>("POST", `/repo/${repoId}/plan`, { intent }),
 
   discoverSeams: (repoId: string, objective: string) =>
     request<Discovery>("POST", `/repo/${repoId}/discover`, { objective }),
@@ -94,3 +93,10 @@ export const api = {
 
   githubStatus: () => request<GithubStatus>("GET", "/github/status"),
 };
+
+// The OAuth dance is a full-page browser navigation (GitHub must render its
+// authorize screen), not an XHR — navigate here to start it. `next` is the
+// frontend path to land back on afterwards.
+export function githubOauthStartUrl(next: string): string {
+  return `${BACKEND_BASE_URL}/github/oauth/start?next=${encodeURIComponent(next)}`;
+}

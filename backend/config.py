@@ -16,6 +16,17 @@ DATABASE_URL: str = os.getenv(
 )
 GITHUB_TOKEN: str = os.getenv("GITHUB_TOKEN", "")
 
+# GitHub OAuth App for the "Connect GitHub" web flow (github_oauth.py).
+# Register at github.com -> Settings -> Developer settings -> OAuth Apps;
+# the app's Authorization callback URL must EXACTLY match
+# GITHUB_OAUTH_REDIRECT_URI (protocol, host, port, path). Unset = the UI
+# falls back to the manual-token field.
+GITHUB_OAUTH_CLIENT_ID: str = os.getenv("GITHUB_OAUTH_CLIENT_ID", "")
+GITHUB_OAUTH_CLIENT_SECRET: str = os.getenv("GITHUB_OAUTH_CLIENT_SECRET", "")
+GITHUB_OAUTH_REDIRECT_URI: str = os.getenv(
+    "GITHUB_OAUTH_REDIRECT_URI", "http://localhost:8000/github/callback"
+)
+
 # --- LLM provider selection (see llm.py) --------------------------------
 # LLM_PROVIDER picks which API drives planning + migration: "codex", "groq",
 # or any custom name backed by the generic LLM_* trio. Empty = auto-detect
