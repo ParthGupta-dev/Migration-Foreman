@@ -62,6 +62,9 @@ WORKTREES_DIR: Path = DATA_DIR / "worktrees"
 MAX_ATTEMPTS: int = int(os.getenv("MAX_ATTEMPTS", "3"))
 UNIT_PARALLELISM: int = int(os.getenv("UNIT_PARALLELISM", "3"))
 TEST_TIMEOUT_SECONDS: int = int(os.getenv("TEST_TIMEOUT_SECONDS", "300"))
+# Dependency install (npm/pip) that runs in a unit's worktree before its
+# test command; real repos need it, and installs are slower than test runs.
+INSTALL_TIMEOUT_SECONDS: int = int(os.getenv("INSTALL_TIMEOUT_SECONDS", "600"))
 
 # Optional per-repo seam config file (see repo_config.py). Lets a candidate
 # confirmation carry before/after/testCommand without a manual seam.

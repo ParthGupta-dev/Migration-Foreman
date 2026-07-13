@@ -3,8 +3,10 @@
 FROM python:3.12-slim
 
 # git is required for repo ingestion, worktrees, and PR branch pushes.
+# nodejs/npm let the verification gate install JS dependencies and run
+# npm-based test commands inside unit worktrees.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git \
+    && apt-get install -y --no-install-recommends git nodejs npm \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

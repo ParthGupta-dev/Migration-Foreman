@@ -144,9 +144,16 @@ async def run_unit(
             await db.execute(
                 "UPDATE units SET failure_log = $1 WHERE unit_id = $2", failure_log, unit_id
             )
+            # Same retry path either way; the message just names the real
+            # culprit so a broken install is never mistaken for a bad migration.
+            failed_step = (
+                "Dependency install failed"
+                if log.startswith(runner.INSTALL_FAILURE_MARKER)
+                else "Tests failed"
+            )
             await set_unit_status(
                 campaign_id, unit_id, "failed", attempt,
-                f"Tests failed on attempt {attempt}",
+                f"{failed_step} on attempt {attempt}",
                 {"failureLogTail": log[-1000:]},
             )
 
