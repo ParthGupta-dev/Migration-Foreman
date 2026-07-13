@@ -92,7 +92,7 @@ The CLI uses the same discovery pipeline as the UI: it prints the discovered sea
 
 The demo repo is a small Python project where a deprecated `legacy_format` helper must be replaced by `format_text` across modules that use it in different ways — some trivially, some in ways that break tests and exercise the retry/escalation path.
 
-**1. Ingest.** Open http://localhost:3000, click the demo repo preset (or paste any Git URL). The backend clones the repo, builds the import dependency graph, and ranks migration candidates.
+**1. Ingest.** Open http://localhost:3000, click the demo repo preset, paste any Git URL, or click **Connect GitHub** and pick one of your own repositories from the dropdown (private repos included — the connected session's token is used to clone). The backend clones the repo, builds the import dependency graph, and ranks migration candidates.
 
 **2. State the objective in plain English.** The default **AI Discovery** mode shows an objective box. Type:
 
@@ -118,7 +118,7 @@ The **verification command** is always visible on every card, in every mode — 
 
 **5. Batch execution.** Each in-scope file becomes one unit; units run in parallel (bounded by `UNIT_PARALLELISM`), each in its own git worktree so attempts never contaminate each other. The campaign page streams unit status and the migration agent's per-file rationale live over WebSocket.
 
-**6. Verification on every unit.** After each migrated file, the seam's test command runs in that unit's worktree. Passing units merge into the campaign branch.
+**6. Verification on every unit.** Before the seam's test command runs, the worktree's dependencies are installed first if the repo needs them — `package.json` → `npm`/`pnpm`/`yarn install` (whichever lockfile is present), `requirements.txt` → `pip install -r`, `pyproject.toml` → `pip install .`; a stdlib-only repo (like the demo) skips this entirely. A failed install is reported distinctly (`Dependency install failed`, not `Tests failed`) so a missing-module problem never looks like a broken migration. Then the test command runs in that unit's worktree; passing units merge into the campaign branch.
 
 **6b. Inspect any resolved unit.** Every passed or escalated unit gets two actions: **View Diff** (the raw patch) and **Live Preview** — a before/after view rendered by file type: Markdown files render as formatted documents (the demo repo's README is migrated and shows this), HTML renders in a sandboxed frame, CSS is applied to a sample page Storybook-style, and code shows side by side. The full `pytest`/`unittest` output for the unit is one click away in the same panel.
 
@@ -127,9 +127,23 @@ The **verification command** is always visible on every card, in every mode — 
 **8. Publish — your choice.** When the campaign completes, the summary page shows a **Migration complete** screen (verification result, changed files, passed/escalated counts) with two publishing options:
 
 - **Apply locally (default, no GitHub needed).** One click merges the verified campaign branch into the repo's default branch in the clone, then shows the modified files, a diff summary, the local repository path, and copyable git commands (`git status` / `git log` / `git push`) to take it from there.
-- **Create pull request (optional).** Click **Connect GitHub** to authorize on github.com (OAuth web flow — the access token stays server-side, keyed to your browser session, and is never sent to the frontend; reconnect after a backend restart). Requires a registered GitHub OAuth App: set `GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET`, and make sure the app's Authorization callback URL exactly matches `GITHUB_OAUTH_REDIRECT_URI`. Without one, the button falls back to pasting a personal access token (browser session only, sent per request); `GITHUB_TOKEN` can also be preconfigured server-side. Then one click pushes the campaign branch and opens a PR with escalated units listed for follow-up. For non-GitHub repos this returns `502 pr_creation_failed` and the summary view falls back to the aggregated diffs.
+- **Create pull request (optional).** Click **Connect GitHub** to authorize on github.com (OAuth web flow — the access token is encrypted and stored server-side, keyed to your browser session via Postgres, and is never sent to the frontend). Without a registered OAuth App, the button falls back to pasting a personal access token (browser session only, sent per request); `GITHUB_TOKEN` can also be preconfigured server-side. Once connected, one click pushes the campaign branch and opens a PR with escalated units listed for follow-up — same connected session used to pick the repo in step 1 works here automatically. For non-GitHub repos this returns `502 pr_creation_failed` and the summary view falls back to the aggregated diffs.
 
 The whole migration workflow completes without any GitHub authentication; publishing to GitHub is strictly optional post-processing.
+
+### GitHub OAuth setup (for "Connect GitHub" + the repo picker)
+
+1. On github.com: **Settings → Developer settings → OAuth Apps → New OAuth App**.
+2. Homepage URL: `http://localhost:3000`. **Authorization callback URL: `http://localhost:8000/github/callback`** — must match `GITHUB_OAUTH_REDIRECT_URI` exactly (protocol, host, port, path), or the callback will reject the exchange.
+3. Register the app, generate a client secret, then set in `.env`:
+   ```
+   GITHUB_OAUTH_CLIENT_ID=…
+   GITHUB_OAUTH_CLIENT_SECRET=…
+   SESSION_ENCRYPTION_KEY=…   # any long random string; encrypts tokens at rest
+   ```
+4. `docker compose up -d backend` to pick up the new env vars.
+
+Without this, `GET /github/status` reports `oauthAvailable: false` and the UI shows the manual-token fallback instead of the Connect button. A separately configured `GITHUB_TOKEN` env var makes `/github/status` report `connected: true` for the PR-creation fallback path, but it is **not** an OAuth session (`oauthConnected` stays `false`) and cannot be used to browse or pick "your" repositories — that requires an actual Connect GitHub login.
 
 ## LLM providers
 
@@ -160,8 +174,15 @@ Backend at http://localhost:8000 (interactive docs at `/docs`):
 | `GET /campaign/{id}/unit/{id}/preview` | Before/after file contents + full test output for the Live Preview view |
 | `POST /campaign/{id}/apply` | **Default publishing path**: merge the verified campaign branch into the local repo's default branch — no GitHub auth |
 | `POST /campaign/{id}/finalize` | Optional publishing path: push + open a GitHub PR (token from the UI or `GITHUB_TOKEN`) |
-| `GET /github/status` | Whether this session/backend can create PRs (`connected`, OAuth `username`, `oauthAvailable`) |
-| `GET /github/oauth/start` | Begin the "Connect GitHub" OAuth web flow (302 to GitHub's authorize screen) |
-| `GET /github/callback` | OAuth redirect target: validates state, exchanges the code, stores the token server-side |
+| `GET /github/status` | `connected` (session OR env `GITHUB_TOKEN`), `oauthConnected` (real session only — gates the repo picker), `username`, `oauthAvailable`, `repositoryCount` |
+| `GET /auth/github/login` (alias `GET /github/oauth/start`) | Begin the "Connect GitHub" OAuth web flow (302 to GitHub's authorize screen) |
+| `GET /auth/github/callback` (alias `GET /github/callback`) | OAuth redirect target: validates state, exchanges the code, stores the (encrypted) token server-side |
+| `GET /auth/session` | Session validation for a frontend: `{authenticated, username, avatar, githubId, repositoriesAvailable}` |
+| `POST /auth/logout` | Destroy the current GitHub session |
+| `GET /github/repositories` | Repositories available to the authenticated session (owner, name, defaultBranch, private, permissions) |
+| `GET /github/repository/{owner}/{repo}` | Metadata for one repository |
+| `POST /github/pull-request` | Push + open a PR for a completed campaign using the authenticated session — no token in the request |
 | `WS /ws/campaign/{id}` | Live unit status, reasoning, and escalation events |
 | `GET /health` | Service, database, and active LLM provider status |
+
+GitHub authentication is its own backend layer — see `auth/` (OAuth + encrypted sessions), `github/` (REST client, repositories, PRs), and `services/github_service.py` (the facade the migration engine and API routes call; nothing else touches the GitHub API or session internals directly).

@@ -180,11 +180,55 @@ class GithubStatusOut(BaseModel):
     # a GITHUB_TOKEN configured; the UI can also "connect" by passing a token
     # per finalize request without either.
     connected: bool
+    # True only when THIS browser has a real OAuth session (not merely a
+    # GITHUB_TOKEN env fallback). Repo listing/picking requires this — an
+    # env token being set doesn't mean this session can browse "your" repos.
+    oauthConnected: bool = False
     # GitHub login of the OAuth-connected user (None for env-token/manual).
     username: str | None = None
     # Whether the "Connect GitHub" OAuth button can work at all (client
     # id/secret configured server-side); False = UI offers the manual field.
     oauthAvailable: bool = False
+    avatar: str | None = None
+    # Best-effort live count; None if it couldn't be fetched (e.g. rate limit).
+    repositoryCount: int | None = None
+    expiresAt: str | None = None
+
+
+class AuthSessionOut(BaseModel):
+    """GET /auth/session — session validation for a future frontend."""
+
+    authenticated: bool
+    username: str | None = None
+    avatar: str | None = None
+    githubId: int | None = None
+    repositoriesAvailable: bool = False
+
+
+class GithubRepositoryOut(BaseModel):
+    owner: str
+    name: str
+    fullName: str
+    defaultBranch: str
+    private: bool
+    permissions: dict
+
+
+class GithubRepositoriesOut(BaseModel):
+    repositories: list[GithubRepositoryOut]
+
+
+class GithubPullRequestIn(BaseModel):
+    campaignId: str
+    title: str | None = None
+    body: str | None = None
+
+
+class GithubPullRequestOut(BaseModel):
+    campaignId: str
+    prUrl: str
+    acceptedUnits: int
+    escalatedUnits: int
 
 
 class GraphNodeOut(BaseModel):

@@ -7,6 +7,7 @@ import type {
   CandidatesResponse,
   Discovery,
   FinalizeResult,
+  GithubRepositoriesResponse,
   GithubStatus,
   GraphResponse,
   HealthResponse,
@@ -92,6 +93,9 @@ export const api = {
     ),
 
   githubStatus: () => request<GithubStatus>("GET", "/github/status"),
+
+  githubRepositories: () =>
+    request<GithubRepositoriesResponse>("GET", "/github/repositories"),
 };
 
 // The OAuth dance is a full-page browser navigation (GitHub must render its
