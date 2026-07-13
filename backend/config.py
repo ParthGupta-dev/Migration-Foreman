@@ -16,7 +16,7 @@ DATABASE_URL: str = os.getenv(
 )
 GITHUB_TOKEN: str = os.getenv("GITHUB_TOKEN", "")
 
-# GitHub OAuth App for the "Connect GitHub" web flow (github_oauth.py).
+# GitHub OAuth App for the "Connect GitHub" web flow (auth/oauth.py).
 # Register at github.com -> Settings -> Developer settings -> OAuth Apps;
 # the app's Authorization callback URL must EXACTLY match
 # GITHUB_OAUTH_REDIRECT_URI (protocol, host, port, path). Unset = the UI
@@ -26,6 +26,15 @@ GITHUB_OAUTH_CLIENT_SECRET: str = os.getenv("GITHUB_OAUTH_CLIENT_SECRET", "")
 GITHUB_OAUTH_REDIRECT_URI: str = os.getenv(
     "GITHUB_OAUTH_REDIRECT_URI", "http://localhost:8000/github/callback"
 )
+
+# Session storage (auth/session.py): OAuth access tokens are encrypted with a
+# key derived from SESSION_ENCRYPTION_KEY before being persisted in Postgres.
+# Unset = an insecure dev-only key is used (a warning is logged once) -- set
+# this explicitly before storing any real user's token.
+SESSION_ENCRYPTION_KEY: str = os.getenv("SESSION_ENCRYPTION_KEY", "")
+# Sliding-window session lifetime; refreshed on each authenticated request
+# that calls auth.session.touch_session (see GET /auth/session).
+SESSION_TTL_HOURS: int = int(os.getenv("SESSION_TTL_HOURS", "720"))  # 30 days
 
 # --- LLM provider selection (see llm.py) --------------------------------
 # LLM_PROVIDER picks which API drives planning + migration: "codex", "groq",

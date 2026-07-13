@@ -53,3 +53,23 @@ CREATE TABLE IF NOT EXISTS unit_events (
 CREATE INDEX IF NOT EXISTS idx_units_campaign_id ON units(campaign_id);
 CREATE INDEX IF NOT EXISTS idx_unit_events_unit_id ON unit_events(unit_id);
 CREATE INDEX IF NOT EXISTS idx_seams_repo_id ON seams(repo_id);
+
+-- GitHub OAuth sessions (auth/session.py). session_id is the opaque value
+-- carried in the mf_session HttpOnly cookie; access/refresh tokens are
+-- encrypted application-side (auth/encryption.py) before landing here, so a
+-- database dump alone never yields a usable GitHub credential.
+CREATE TABLE IF NOT EXISTS github_sessions (
+  session_id              TEXT PRIMARY KEY,
+  github_user_id          BIGINT,
+  username                TEXT,
+  display_name            TEXT,
+  avatar_url              TEXT,
+  access_token_encrypted  BYTEA NOT NULL,
+  refresh_token_encrypted BYTEA,
+  token_expires_at        TIMESTAMPTZ,
+  expires_at              TIMESTAMPTZ NOT NULL,
+  created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_seen_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_github_sessions_expires_at ON github_sessions(expires_at);

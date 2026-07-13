@@ -185,6 +185,46 @@ class GithubStatusOut(BaseModel):
     # Whether the "Connect GitHub" OAuth button can work at all (client
     # id/secret configured server-side); False = UI offers the manual field.
     oauthAvailable: bool = False
+    avatar: str | None = None
+    # Best-effort live count; None if it couldn't be fetched (e.g. rate limit).
+    repositoryCount: int | None = None
+    expiresAt: str | None = None
+
+
+class AuthSessionOut(BaseModel):
+    """GET /auth/session — session validation for a future frontend."""
+
+    authenticated: bool
+    username: str | None = None
+    avatar: str | None = None
+    githubId: int | None = None
+    repositoriesAvailable: bool = False
+
+
+class GithubRepositoryOut(BaseModel):
+    owner: str
+    name: str
+    fullName: str
+    defaultBranch: str
+    private: bool
+    permissions: dict
+
+
+class GithubRepositoriesOut(BaseModel):
+    repositories: list[GithubRepositoryOut]
+
+
+class GithubPullRequestIn(BaseModel):
+    campaignId: str
+    title: str | None = None
+    body: str | None = None
+
+
+class GithubPullRequestOut(BaseModel):
+    campaignId: str
+    prUrl: str
+    acceptedUnits: int
+    escalatedUnits: int
 
 
 class GraphNodeOut(BaseModel):

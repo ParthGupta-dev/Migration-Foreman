@@ -26,9 +26,10 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 import config
 import db
-import github_oauth
 import llm
 import models
+from auth import oauth as github_oauth_flow
+from auth import session as github_session
 from discovery import blacklist
 from discovery import candidates as discovery
 from errors import ApiError
@@ -40,7 +41,10 @@ from repo_config import (
     infer_test_command_for_files,
     load_repo_config,
 )
+from services import github_service
 from ws import manager
+
+SESSION_COOKIE = "mf_session"
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("migration_foreman")
@@ -522,14 +526,13 @@ async def finalize_campaign(
     ("Connect GitHub" flow) > GITHUB_TOKEN env var (assembler's own fallback).
     """
     ctx = await _completed_campaign_context(campaign_id, "finalize")
-    session_id = request.cookies.get(github_oauth.SESSION_COOKIE)
-    token = (body.githubToken if body else None) or github_oauth.get_token(session_id)
+    session_id = request.cookies.get(SESSION_COOKIE)
+    token = body.githubToken if body else None
     try:
-        pr_url = await asyncio.to_thread(
-            assembler.create_pr,
+        pr_url = await assembler.create_pr(
             ctx["repoUrl"], ctx["repoPath"], ctx["campaignBranch"],
             ctx["accepted"], ctx["escalated"],
-            token,
+            token=token, session_id=session_id,
         )
     except assembler.PrCreationError as exc:
         # Fallback plan: frontend shows the aggregated diffs instead.
@@ -543,27 +546,25 @@ async def finalize_campaign(
     )
 
 
-# --- GitHub connection (OAuth web flow + status) --------------------------
+# --- GitHub authentication infrastructure --------------------------------
+#
+# Backend-owned OAuth + session + repository/PR access (see auth/, github/,
+# services/github_service.py). The migration engine and PR pipeline never
+# see a raw token or know whether it came from OAuth, a manually pasted
+# token, or GITHUB_TOKEN — they ask services.github_service for a client.
+#
+# Endpoint set below matches the stable contract a future frontend consumes
+# (/auth/github/login, /auth/github/callback, /auth/session, /auth/logout,
+# /github/repositories, /github/repository/{owner}/{repo},
+# /github/pull-request). /github/oauth/start, /github/callback, and
+# /github/status are kept as aliases for the already-wired demo frontend —
+# same underlying session, just a different path.
 
 
-@app.get("/github/status", response_model=models.GithubStatusOut)
-async def github_status(request: Request) -> models.GithubStatusOut:
-    """Whether this session (OAuth) or the backend (env GITHUB_TOKEN) can PR."""
-    session_id = request.cookies.get(github_oauth.SESSION_COOKIE)
-    oauth_token = github_oauth.get_token(session_id)
-    return models.GithubStatusOut(
-        connected=bool(oauth_token or config.GITHUB_TOKEN),
-        username=github_oauth.get_username(session_id),
-        oauthAvailable=github_oauth.configured(),
-    )
-
-
-@app.get("/github/oauth/start")
-async def github_oauth_start(request: Request, next: str = "/") -> RedirectResponse:
-    """Step 1 of "Connect GitHub": redirect the browser to GitHub's authorize
-    screen with a session-bound CSRF state. `next` is the frontend path to
-    return to after the dance."""
-    if not github_oauth.configured():
+async def _oauth_start(request: Request, next: str = "/") -> RedirectResponse:
+    """Redirect the browser to GitHub's authorize screen with a
+    session-bound CSRF state. `next` is the frontend path to return to."""
+    if not github_oauth_flow.configured():
         raise ApiError(
             400, "github_oauth_not_configured",
             "GitHub OAuth is not configured: set GITHUB_OAUTH_CLIENT_ID and "
@@ -572,13 +573,10 @@ async def github_oauth_start(request: Request, next: str = "/") -> RedirectRespo
         )
     if not next.startswith("/"):  # only ever redirect back into our own frontend
         next = "/"
-    session_id = request.cookies.get(github_oauth.SESSION_COOKIE) or github_oauth.new_session_id()
-    authorize_url = github_oauth.begin(session_id, next)
+    session_id = request.cookies.get(SESSION_COOKIE) or github_session.new_session_id()
+    authorize_url = github_oauth_flow.begin(session_id, next)
     response = RedirectResponse(authorize_url, status_code=302)
-    response.set_cookie(
-        github_oauth.SESSION_COOKIE, session_id,
-        httponly=True, samesite="lax", path="/",
-    )
+    response.set_cookie(SESSION_COOKIE, session_id, httponly=True, samesite="lax", path="/")
     return response
 
 
@@ -590,17 +588,18 @@ def _frontend_redirect(next_path: str, outcome: str) -> RedirectResponse:
     )
 
 
-@app.get("/github/callback")
-async def github_oauth_callback(
+async def _oauth_callback(
     request: Request,
     code: str | None = None,
     state: str | None = None,
     error: str | None = None,
 ) -> RedirectResponse:
-    """Step 2: GitHub redirects here. Validate state, exchange the code, store
-    the token server-side, bounce the browser back to the frontend. Every
-    failure path redirects with ?github=<outcome> — never a raw error page."""
-    pending = github_oauth.pop_state(state) if state else None
+    """GitHub redirects here after the user authorizes (or cancels). Validates
+    `state` (CSRF), exchanges `code` for a token, stores it server-side keyed
+    by the session cookie, and bounces the browser back to the frontend.
+    Every failure path redirects with ?github=<outcome> — never a raw error
+    page or an uncaught exception."""
+    pending = github_oauth_flow.pop_state(state) if state else None
     next_path = pending["next"] if pending else "/"
 
     if error:  # user cancelled / denied on the GitHub screen
@@ -608,20 +607,134 @@ async def github_oauth_callback(
     if pending is None or not code:
         logger.warning("GitHub callback rejected: unknown/expired state")
         return _frontend_redirect(next_path, "error")
-    if request.cookies.get(github_oauth.SESSION_COOKIE) != pending["session"]:
+    if request.cookies.get(SESSION_COOKIE) != pending["session"]:
         logger.warning("GitHub callback rejected: state belongs to another session")
         return _frontend_redirect(next_path, "error")
 
     try:
-        token = await asyncio.to_thread(github_oauth.exchange_code, code)
-    except github_oauth.OAuthError as exc:
+        tokens = await asyncio.to_thread(github_oauth_flow.exchange_code, code)
+    except github_oauth_flow.OAuthError as exc:
         logger.error("GitHub code exchange failed: %s", exc)
         return _frontend_redirect(next_path, "error")
 
-    username = await asyncio.to_thread(github_oauth.fetch_username, token)
-    github_oauth.store_token(pending["session"], token, username)
-    logger.info("GitHub connected via OAuth as %s", username or "<unknown>")
+    github_user = await asyncio.to_thread(github_oauth_flow.fetch_user, tokens["access_token"])
+    await github_session.create_session(
+        pending["session"],
+        github_user or {},
+        tokens["access_token"],
+        refresh_token=tokens.get("refresh_token"),
+        token_expires_in=tokens.get("expires_in"),
+    )
+    logger.info(
+        "GitHub connected via OAuth as %s",
+        (github_user or {}).get("login") or "<unknown>",
+    )
     return _frontend_redirect(next_path, "connected")
+
+
+app.add_api_route("/auth/github/login", _oauth_start, methods=["GET"])
+app.add_api_route("/github/oauth/start", _oauth_start, methods=["GET"])
+app.add_api_route("/auth/github/callback", _oauth_callback, methods=["GET"])
+app.add_api_route("/github/callback", _oauth_callback, methods=["GET"])
+
+
+@app.get("/auth/session", response_model=models.AuthSessionOut)
+async def auth_session(request: Request) -> models.AuthSessionOut:
+    """Session validation for a future frontend to poll after login."""
+    session_id = request.cookies.get(SESSION_COOKIE)
+    session = await github_session.get_session(session_id)
+    if session is None:
+        return models.AuthSessionOut(authenticated=False)
+    await github_session.touch_session(session_id)  # sliding-window refresh
+    return models.AuthSessionOut(
+        authenticated=True,
+        username=session["username"],
+        avatar=session["avatarUrl"],
+        githubId=session["githubId"],
+        repositoriesAvailable=True,
+    )
+
+
+@app.post("/auth/logout")
+async def auth_logout(request: Request) -> dict[str, bool]:
+    session_id = request.cookies.get(SESSION_COOKIE)
+    response_body = {"loggedOut": True}
+    if session_id:
+        await github_session.destroy_session(session_id)
+    return response_body
+
+
+@app.get("/github/status", response_model=models.GithubStatusOut)
+async def github_status(request: Request) -> models.GithubStatusOut:
+    """Whether this session (OAuth) or the backend (env GITHUB_TOKEN) can PR."""
+    session_id = request.cookies.get(SESSION_COOKIE)
+    session = await github_session.get_session(session_id)
+    repository_count: int | None = None
+    if session is not None:
+        try:
+            repos = await github_service.list_repositories(session_id)
+            repository_count = len(repos)
+        except github_service.GithubServiceError as exc:
+            logger.warning("Could not fetch repository count for status: %s", exc)
+    return models.GithubStatusOut(
+        connected=bool(session or config.GITHUB_TOKEN),
+        username=session["username"] if session else None,
+        oauthAvailable=github_oauth_flow.configured(),
+        avatar=session["avatarUrl"] if session else None,
+        repositoryCount=repository_count,
+        expiresAt=session["expiresAt"].isoformat() if session else None,
+    )
+
+
+@app.get("/github/repositories", response_model=models.GithubRepositoriesOut)
+async def github_repositories(request: Request) -> models.GithubRepositoriesOut:
+    session_id = request.cookies.get(SESSION_COOKIE)
+    try:
+        repos = await github_service.list_repositories(session_id)
+    except github_service.GithubServiceError as exc:
+        raise ApiError(401, "github_not_authenticated", str(exc))
+    return models.GithubRepositoriesOut(
+        repositories=[models.GithubRepositoryOut(**repo) for repo in repos]
+    )
+
+
+@app.get("/github/repository/{owner}/{repo}", response_model=models.GithubRepositoryOut)
+async def github_repository(owner: str, repo: str, request: Request) -> models.GithubRepositoryOut:
+    session_id = request.cookies.get(SESSION_COOKIE)
+    try:
+        data = await github_service.get_repository(session_id, owner, repo)
+    except github_service.GithubServiceError as exc:
+        raise ApiError(401, "github_not_authenticated", str(exc))
+    return models.GithubRepositoryOut(**data)
+
+
+@app.post("/github/pull-request", response_model=models.GithubPullRequestOut)
+async def github_pull_request(
+    body: models.GithubPullRequestIn, request: Request
+) -> models.GithubPullRequestOut:
+    """Create a PR for a completed campaign using the authenticated session's
+    GitHub credentials — no Personal Access Token required."""
+    session_id = request.cookies.get(SESSION_COOKIE)
+    ctx = await _completed_campaign_context(body.campaignId, "pull-request")
+    try:
+        pr_url = await github_service.create_pull_request_for_campaign(
+            session_id=session_id,
+            repo_url=ctx["repoUrl"],
+            repo_path=ctx["repoPath"],
+            campaign_branch=ctx["campaignBranch"],
+            accepted=ctx["accepted"],
+            escalated=ctx["escalated"],
+            title=body.title,
+            body=body.body,
+        )
+    except github_service.GithubServiceError as exc:
+        raise ApiError(502, "pr_creation_failed", str(exc))
+    return models.GithubPullRequestOut(
+        campaignId=ctx["campaignId"],
+        prUrl=pr_url,
+        acceptedUnits=len(ctx["accepted"]),
+        escalatedUnits=len(ctx["escalated"]),
+    )
 
 
 # --- WebSocket ----------------------------------------------------------

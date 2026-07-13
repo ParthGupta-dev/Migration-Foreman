@@ -160,8 +160,15 @@ Backend at http://localhost:8000 (interactive docs at `/docs`):
 | `GET /campaign/{id}/unit/{id}/preview` | Before/after file contents + full test output for the Live Preview view |
 | `POST /campaign/{id}/apply` | **Default publishing path**: merge the verified campaign branch into the local repo's default branch — no GitHub auth |
 | `POST /campaign/{id}/finalize` | Optional publishing path: push + open a GitHub PR (token from the UI or `GITHUB_TOKEN`) |
-| `GET /github/status` | Whether this session/backend can create PRs (`connected`, OAuth `username`, `oauthAvailable`) |
-| `GET /github/oauth/start` | Begin the "Connect GitHub" OAuth web flow (302 to GitHub's authorize screen) |
-| `GET /github/callback` | OAuth redirect target: validates state, exchanges the code, stores the token server-side |
+| `GET /github/status` | Whether this session/backend can create PRs (`connected`, OAuth `username`, `oauthAvailable`, `repositoryCount`) |
+| `GET /auth/github/login` (alias `GET /github/oauth/start`) | Begin the "Connect GitHub" OAuth web flow (302 to GitHub's authorize screen) |
+| `GET /auth/github/callback` (alias `GET /github/callback`) | OAuth redirect target: validates state, exchanges the code, stores the (encrypted) token server-side |
+| `GET /auth/session` | Session validation for a frontend: `{authenticated, username, avatar, githubId, repositoriesAvailable}` |
+| `POST /auth/logout` | Destroy the current GitHub session |
+| `GET /github/repositories` | Repositories available to the authenticated session (owner, name, defaultBranch, private, permissions) |
+| `GET /github/repository/{owner}/{repo}` | Metadata for one repository |
+| `POST /github/pull-request` | Push + open a PR for a completed campaign using the authenticated session — no token in the request |
 | `WS /ws/campaign/{id}` | Live unit status, reasoning, and escalation events |
 | `GET /health` | Service, database, and active LLM provider status |
+
+GitHub authentication is its own backend layer — see `auth/` (OAuth + encrypted sessions), `github/` (REST client, repositories, PRs), and `services/github_service.py` (the facade the migration engine and API routes call; nothing else touches the GitHub API or session internals directly).

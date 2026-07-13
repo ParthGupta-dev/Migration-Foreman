@@ -1,108 +1,45 @@
-"""PR assembly via the GitHub REST API (stdlib urllib — no extra dependency).
+"""PR assembly — thin wrapper over services/github_service.py.
 
-Pushes the campaign branch (which already contains every merged/accepted
-unit) and opens one PR against the repo's default branch, with escalated
-units listed separately in the description for manual follow-up.
-
-Requires a github.com repoUrl and GITHUB_TOKEN. Anything else raises
-PrCreationError -> the API returns 502 pr_creation_failed and the frontend
-falls back to showing the aggregated diffs (fallback plan, section 11).
+The migration engine (and main.py's finalize endpoint) call create_pr()
+without knowing whether the token behind it came from an OAuth session, a
+manually pasted token, or the GITHUB_TOKEN env fallback; that resolution
+lives entirely in services/github_service.py + auth/*. This module only
+keeps the historical PrCreationError name so existing call sites don't need
+to change their except clauses.
 """
 
-import json
-import logging
-import re
-import urllib.error
-import urllib.request
 from pathlib import Path
 
-import config
-from execution import worktree
-from shell import run_git
-
-logger = logging.getLogger("migration_foreman.pr")
-
-_GITHUB_URL = re.compile(r"github\.com[:/]([\w.\-]+)/([\w.\-]+?)(?:\.git)?/?$")
+from services import github_service
 
 
 class PrCreationError(Exception):
     pass
 
 
-def _parse_github(repo_url: str) -> tuple[str, str]:
-    match = _GITHUB_URL.search(repo_url)
-    if not match:
-        raise PrCreationError(f"Not a GitHub repo URL: {repo_url}")
-    return match.group(1), match.group(2)
-
-
-def create_pr(
+async def create_pr(
     repo_url: str,
     repo_path: Path,
     campaign_branch: str,
     accepted: list[str],
     escalated: list[dict],
     token: str | None = None,
+    session_id: str | None = None,
 ) -> str:
     """Push the campaign branch and open the aggregate PR. Returns the PR URL.
 
-    `token` is a UI-supplied GitHub token (connect-GitHub flow); it takes
-    precedence over the GITHUB_TOKEN env var. PR creation is optional
-    post-processing — without any token, users apply changes locally instead
-    (pr/local_apply.py).
+    `token` is a UI-supplied GitHub token (manual-paste fallback); `session_id`
+    is the OAuth session cookie value, which takes precedence when present.
     """
-    token = (token or "").strip() or config.GITHUB_TOKEN
-    if not token:
-        raise PrCreationError(
-            "No GitHub token: connect GitHub in the UI or set GITHUB_TOKEN"
-        )
-    owner, repo = _parse_github(repo_url)
-
-    push_url = f"https://x-access-token:{token}@github.com/{owner}/{repo}.git"
-    push = run_git(["push", "--force", push_url, f"{campaign_branch}:{campaign_branch}"], cwd=repo_path)
-    if not push.ok:
-        raise PrCreationError(f"Failed to push campaign branch: {push.output[-500:]}")
-
-    body_lines = ["## Migration Foreman — verified migration campaign", ""]
-    body_lines.append(f"**Accepted units ({len(accepted)})** — each passed the seam's test command:")
-    body_lines += [f"- `{glob}`" for glob in accepted] or ["- (none)"]
-    body_lines += ["", f"**Escalated units ({len(escalated)})** — require manual follow-up:"]
-    if escalated:
-        for unit in escalated:
-            body_lines.append(f"- `{unit['scopeGlob']}` — failed after {unit['attempt']} attempts")
-    else:
-        body_lines.append("- (none)")
-
-    payload = json.dumps(
-        {
-            "title": f"Migration Foreman: {campaign_branch}",
-            "head": campaign_branch,
-            "base": worktree.default_branch(repo_path),
-            "body": "\n".join(body_lines),
-        }
-    ).encode()
-    request = urllib.request.Request(
-        f"https://api.github.com/repos/{owner}/{repo}/pulls",
-        data=payload,
-        method="POST",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json",
-            "Content-Type": "application/json",
-            "User-Agent": "migration-foreman",
-        },
-    )
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            data = json.loads(response.read())
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode(errors="replace")[:500]
-        raise PrCreationError(f"GitHub API {exc.code}: {detail}") from exc
-    except urllib.error.URLError as exc:
-        raise PrCreationError(f"GitHub API unreachable: {exc.reason}") from exc
-
-    pr_url = data.get("html_url")
-    if not pr_url:
-        raise PrCreationError("GitHub API response missing html_url")
-    logger.info("Opened PR %s", pr_url)
-    return pr_url
+        return await github_service.create_pull_request_for_campaign(
+            session_id=session_id,
+            repo_url=repo_url,
+            repo_path=repo_path,
+            campaign_branch=campaign_branch,
+            accepted=accepted,
+            escalated=escalated,
+            fallback_token=token,
+        )
+    except github_service.GithubServiceError as exc:
+        raise PrCreationError(str(exc)) from exc
