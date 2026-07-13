@@ -15,6 +15,7 @@ import type {
 import { clearSeamQueue, writeSeamQueue } from "@/lib/seamQueue";
 import { matchesAnyGlob } from "@/utils/matchGlob";
 import DependencyGraph from "@/components/DependencyGraph";
+import GithubRepoConnect from "@/components/GithubRepoConnect";
 import ManualSeamForm from "@/components/ManualSeamForm";
 import SeamDiscoveryPanel from "@/components/SeamDiscoveryPanel";
 import ModeToggle, { type SeamMode } from "@/components/ModeToggle";
@@ -197,6 +198,13 @@ export default function RepoInputPage() {
             </button>
           ))}
         </div>
+        <GithubRepoConnect
+          disabled={step === "ingesting"}
+          onSelectRepo={(url) => {
+            setRepoUrl(url);
+            handleIngest(url);
+          }}
+        />
         {error && <p className="text-sm text-red-400">{error}</p>}
       </section>
 

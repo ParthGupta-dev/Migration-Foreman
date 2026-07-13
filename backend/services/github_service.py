@@ -63,6 +63,21 @@ def _parse_github_url(repo_url: str) -> tuple[str, str]:
     return match.group(1), match.group(2)
 
 
+async def authenticated_clone_url(session_id: str | None, repo_url: str) -> str:
+    """Rewrite a github.com URL to embed a bearer token when one is available
+    for this session, so private repos picked from /github/repositories can
+    actually be cloned. Non-GitHub URLs and unauthenticated sessions pass
+    through unchanged (plain clone, as before)."""
+    try:
+        owner, repo = _parse_github_url(repo_url)
+    except GithubServiceError:
+        return repo_url
+    client = await get_client(session_id)
+    if client is None:
+        return repo_url
+    return f"https://x-access-token:{client.token}@github.com/{owner}/{repo}.git"
+
+
 async def create_pull_request_for_campaign(
     session_id: str | None,
     repo_url: str,

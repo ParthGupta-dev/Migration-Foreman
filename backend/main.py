@@ -117,7 +117,7 @@ async def health() -> dict[str, str]:
 
 
 @app.post("/repo", response_model=models.RepoOut)
-async def create_repo(body: models.RepoIn) -> models.RepoOut:
+async def create_repo(body: models.RepoIn, request: Request) -> models.RepoOut:
     if not body.repoUrl.strip():
         raise ApiError(400, "repo_url_invalid", "repoUrl must be a non-empty string")
 
@@ -128,12 +128,19 @@ async def create_repo(body: models.RepoIn) -> models.RepoOut:
     repo_id = str(row["repo_id"])
     dest = _repo_path(repo_id)
 
+    # Private repos picked from GET /github/repositories need the connected
+    # session's token to clone; public repos/URLs pass through unchanged.
+    # The stored/returned repoUrl is always the original (never the
+    # token-bearing one) so a token never lands in the database or a log line.
+    session_id = request.cookies.get(SESSION_COOKIE)
+    clone_url = await github_service.authenticated_clone_url(session_id, body.repoUrl)
+
     # Clone synchronously: the contract has no repo polling endpoint, so the
     # response must already carry the terminal ready/failed status.
     def clone() -> None:
         from git import Repo as GitRepo
 
-        GitRepo.clone_from(body.repoUrl, dest)
+        GitRepo.clone_from(clone_url, dest)
 
     try:
         await asyncio.to_thread(clone)

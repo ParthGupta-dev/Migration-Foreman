@@ -204,6 +204,22 @@ export interface GithubStatus {
   // Whether the backend has an OAuth App configured — false means the UI
   // offers the manual-token field instead of the "Connect GitHub" redirect.
   oauthAvailable: boolean;
+  avatar?: string | null;
+  repositoryCount?: number | null;
+  expiresAt?: string | null;
+}
+
+export interface GithubRepository {
+  owner: string;
+  name: string;
+  fullName: string;
+  defaultBranch: string;
+  private: boolean;
+  permissions: Record<string, boolean>;
+}
+
+export interface GithubRepositoriesResponse {
+  repositories: GithubRepository[];
 }
 
 export interface HealthResponse {
