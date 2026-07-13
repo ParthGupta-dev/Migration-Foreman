@@ -10,6 +10,8 @@ import CompletionPanel from "@/components/CompletionPanel";
 import UnitStatusTable, { type UnitView } from "@/components/UnitStatusTable";
 import UnitPreviewPanel from "@/components/UnitPreviewPanel";
 import DiffView from "@/components/DiffView";
+import EscalationPanel from "@/components/EscalationPanel";
+import BlockedUnitsPanel from "@/components/BlockedUnitsPanel";
 
 export default function CampaignSummaryPage() {
   const params = useParams<{ campaignId: string }>();
@@ -49,6 +51,9 @@ export default function CampaignSummaryPage() {
 
   const passedUnits = campaign.units.filter((unit) => unit.status === "passed");
   const escalatedUnits = campaign.units.filter((unit) => unit.status === "escalated");
+  const blockedUnits = campaign.units.filter((unit) =>
+    ["blocked", "generation_failed", "system_error"].includes(unit.status)
+  );
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
@@ -105,6 +110,23 @@ export default function CampaignSummaryPage() {
         </section>
       )}
 
+      {(escalatedUnits.length > 0 || blockedUnits.length > 0) && (
+        <section className="space-y-4">
+          <div className="space-y-2">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+              Escalations — human Review queue
+            </h2>
+            <EscalationPanel units={campaign.units} />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+              Infrastructure / system issues
+            </h2>
+            <BlockedUnitsPanel units={campaign.units} />
+          </div>
+        </section>
+      )}
+
       {campaign.status === "completed" ? (
         <CompletionPanel
           campaignId={params.campaignId}
@@ -117,8 +139,8 @@ export default function CampaignSummaryPage() {
           once the campaign completes.
         </p>
       )}
-      {passedUnits.length + escalatedUnits.length === 0 && (
-        <p className="text-sm text-slate-500">No accepted or escalated units.</p>
+      {passedUnits.length + escalatedUnits.length + blockedUnits.length === 0 && (
+        <p className="text-sm text-slate-500">No accepted, escalated, or blocked units.</p>
       )}
     </div>
   );

@@ -7,6 +7,7 @@ import type {
   CandidatesResponse,
   Discovery,
   FinalizeResult,
+  GithubBranchesResponse,
   GithubRepositoriesResponse,
   GithubStatus,
   GraphResponse,
@@ -58,8 +59,8 @@ async function request<T>(
 export const api = {
   health: () => request<HealthResponse>("GET", "/health"),
 
-  createRepo: (repoUrl: string) =>
-    request<Repo>("POST", "/repo", { repoUrl }),
+  createRepo: (repoUrl: string, branch?: string) =>
+    request<Repo>("POST", "/repo", branch ? { repoUrl, branch } : { repoUrl }),
 
   getCandidates: (repoId: string) =>
     request<CandidatesResponse>("GET", `/repo/${repoId}/candidates`),
@@ -96,6 +97,12 @@ export const api = {
 
   githubRepositories: () =>
     request<GithubRepositoriesResponse>("GET", "/github/repositories"),
+
+  githubBranches: (owner: string, name: string) =>
+    request<GithubBranchesResponse>(
+      "GET",
+      `/github/repository/${owner}/${name}/branches`
+    ),
 };
 
 // The OAuth dance is a full-page browser navigation (GitHub must render its

@@ -137,13 +137,23 @@ export interface CampaignCreated {
   unitCount: number;
 }
 
+// Terminal states beyond "passed"/"escalated" (backend/verification/gate.py):
+// blocked = LLM/provider infra failure on every attempt (429, timeout, empty
+//   response, provider down) -- never reached a real verification.
+// generation_failed = the model responded but never produced usable
+//   migration content.
+// system_error = an unexpected internal/environment failure.
+// Only "escalated" belongs in the human Review queue (EscalationPanel).
 export type UnitStatus =
   | "pending"
   | "running"
   | "passed"
   | "failed"
   | "retrying"
-  | "escalated";
+  | "escalated"
+  | "blocked"
+  | "generation_failed"
+  | "system_error";
 
 export interface Unit {
   unitId: string;
@@ -226,6 +236,15 @@ export interface GithubRepositoriesResponse {
   repositories: GithubRepository[];
 }
 
+export interface GithubBranch {
+  name: string;
+  protected: boolean;
+}
+
+export interface GithubBranchesResponse {
+  branches: GithubBranch[];
+}
+
 export interface HealthResponse {
   status: "ok" | "degraded";
   db: "connected" | "unavailable";
@@ -261,6 +280,15 @@ export interface UnitEscalatedEvent {
   failureLog: string;
 }
 
+// Terminal failures that are NOT engineering-judgement calls (blocked /
+// generation_failed / system_error) — deliberately a separate event from
+// unit_escalated so the human Review queue never has to filter these out.
+export interface UnitBlockedEvent {
+  unitId: string;
+  status: string;
+  failureLog: string;
+}
+
 export interface CampaignCompletedEvent {
   campaignId: string;
 }
@@ -274,5 +302,6 @@ export type CampaignWsEvent =
   | { event: "unit_status"; data: UnitStatusEvent }
   | { event: "unit_reasoning"; data: UnitReasoningEvent }
   | { event: "unit_escalated"; data: UnitEscalatedEvent }
+  | { event: "unit_blocked"; data: UnitBlockedEvent }
   | { event: "campaign_completed"; data: CampaignCompletedEvent }
   | { event: "campaign_failed"; data: CampaignFailedEvent };

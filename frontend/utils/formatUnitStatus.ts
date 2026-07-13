@@ -7,6 +7,9 @@ export const UNIT_STATUS_ORDER: UnitStatus[] = [
   "failed",
   "retrying",
   "escalated",
+  "blocked",
+  "generation_failed",
+  "system_error",
 ];
 
 const LABELS: Record<UnitStatus, string> = {
@@ -16,6 +19,9 @@ const LABELS: Record<UnitStatus, string> = {
   failed: "Failed",
   retrying: "Retrying",
   escalated: "Escalated",
+  blocked: "Blocked (provider)",
+  generation_failed: "Generation failed",
+  system_error: "System error",
 };
 
 const CLASSES: Record<UnitStatus, string> = {
@@ -25,6 +31,9 @@ const CLASSES: Record<UnitStatus, string> = {
   failed: "bg-red-600 text-white",
   retrying: "bg-amber-600 text-white",
   escalated: "bg-purple-600 text-white",
+  blocked: "bg-slate-500 text-white",
+  generation_failed: "bg-orange-600 text-white",
+  system_error: "bg-rose-700 text-white",
 };
 
 const NODE_COLORS: Record<UnitStatus, string> = {
@@ -34,6 +43,9 @@ const NODE_COLORS: Record<UnitStatus, string> = {
   failed: "#dc2626",
   retrying: "#d97706",
   escalated: "#9333ea",
+  blocked: "#64748b",
+  generation_failed: "#ea580c",
+  system_error: "#be123c",
 };
 
 export function formatUnitStatusLabel(status: string): string {

@@ -46,11 +46,11 @@ export default function RepoInputPage() {
     setDiscovery(null);
   };
 
-  async function handleIngest(url: string) {
+  async function handleIngest(url: string, branch?: string) {
     setError(null);
     setStep("ingesting");
     try {
-      const created = await api.createRepo(url);
+      const created = await api.createRepo(url, branch);
       if (created.status !== "ready") {
         throw new Error(`Repo ingestion ended in status "${created.status}"`);
       }
@@ -200,9 +200,9 @@ export default function RepoInputPage() {
         </div>
         <GithubRepoConnect
           disabled={step === "ingesting"}
-          onSelectRepo={(url) => {
+          onSelectRepo={(url, branch) => {
             setRepoUrl(url);
-            handleIngest(url);
+            handleIngest(url, branch);
           }}
         />
         {error && <p className="text-sm text-red-400">{error}</p>}

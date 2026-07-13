@@ -11,6 +11,7 @@ import UnitPreviewPanel from "@/components/UnitPreviewPanel";
 import DiffView from "@/components/DiffView";
 import ReasoningLog from "@/components/ReasoningLog";
 import EscalationPanel from "@/components/EscalationPanel";
+import BlockedUnitsPanel from "@/components/BlockedUnitsPanel";
 import { unitStatusNodeColor } from "@/utils/formatUnitStatus";
 
 export default function LiveCampaignPage() {
@@ -131,9 +132,16 @@ export default function LiveCampaignPage() {
 
           <div className="space-y-2">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Escalations
+              Escalations — human Review queue
             </h3>
             <EscalationPanel units={campaign.units} />
+          </div>
+
+          <div className="space-y-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Infrastructure / system issues
+            </h3>
+            <BlockedUnitsPanel units={campaign.units} />
           </div>
         </>
       )}
