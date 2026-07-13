@@ -52,7 +52,7 @@ Built for the Codex Community Hackathon, New Delhi NCR, July 14, 2026. Agentic C
 **Modes:**
 - **AI Discovery (default)** — operator states a high-level objective; the AI discovers candidate seams and the operator approves/edits/rejects them before anything runs
 - **Guided** — operator manually defines the seam (skip Discovery Engine scoring, use for demo safety if ranking isn't stable)
-- **Autonomous** — the exact same AI discovery pipeline as AI Discovery (single planning implementation), but discovered seams are auto-approved and execution starts immediately; the approval pause is the only behavioural difference between the two AI modes
+- **Autonomous** — the exact same AI discovery pipeline as AI Discovery (single planning implementation), presented with minimal interaction: one confirm-and-execute click covers all discovered seams instead of per-seam approve/edit/reject. Both AI modes require explicit human confirmation before execution; neither requires manual before/after patterns or `.migration-foreman.json`
 
 **Services:**
 - Frontend (Next.js) — dashboard, seam review/confirmation screen, live campaign view, dependency graph
@@ -380,6 +380,10 @@ Evolves the planning layer from "one intent, one seam" to "one objective, many a
 - [x] Multi-seam execution
   - [x] Approved seams convert to regular Seam records via existing `POST /repo/{id}/seam`
   - [x] Campaigns run one at a time in approved order; remaining seams queue client-side and the campaign summary offers "Start next seam campaign"
+- [x] Single planning implementation (consolidation)
+  - [x] Legacy single-seam `POST /repo/{id}/plan` removed; `planner.py` reduced to the shared grounding/validation library used by discovery
+  - [x] Autonomous mode (UI) runs discovery and pauses for one confirm-and-execute click — never requires manual patterns or `.migration-foreman.json`
+  - [x] CLI runner (`scripts/run_campaign.py`) uses the same `/discover` pipeline with a confirmation prompt (`--yes` for unattended); legacy candidate/pattern path removed
 
 ### 4.7 Publishing Choice: Apply Locally vs Pull Request (current version)
 
@@ -395,6 +399,21 @@ Separates migration execution from repository publishing. GitHub authentication 
   - [x] Apply Locally card (default): one-click apply, then modified files, diff summary, local repo path, Copy Git Commands
   - [x] Create Pull Request card: Connect GitHub (session-only token via UI — OAuth is the intended long-term flow) or one-click PR when already connected
   - [x] PR failure falls back to local apply / aggregated diffs
+
+### 4.8 Automatic Verification Command Discovery (current version)
+
+Precondition confirmed first: fresh clone → worktree → inferred command runs (no dependency-install step exists; commands rely on the backend environment, so inference prefers infra-free invocations).
+
+- [x] Detection (`repo_config.py`), in priority order
+  - [x] Repository-specific scripts: `package.json` scripts, `Makefile` test target
+  - [x] Framework/lockfile conventions: pytest signals (pyproject/poetry.lock/requirements/tox.ini + test presence), npm/pnpm/yarn by lockfile, Cargo, go.mod, Maven, Gradle (gradlew-aware), .NET
+  - [x] Safe stdlib fallback: `python -m unittest discover` when `tests/test*.py` exists
+  - [x] CI YAML parsing explicitly out of scope — CI-only signal counts as "no confident match"
+- [x] Disambiguation: npm script preference `test` → `test:unit` → `test:ci` → first `test:unit:*`; `watch`/`e2e`/`dev` never auto-selected; ambiguous leftovers = no confident match; pytest beats tox
+- [x] Monorepo: per-top-level-directory detection; a seam confined to one manifest-bearing dir gets a `cd "<dir>" && <cmd>`-scoped command; spanning seams with no root manifest and no single resolvable dir = no confident match
+- [x] Safe fallback rule: `testCommand: null` is legal; AI Discovery/Guided require the human to fill it before submission (existing); Autonomous excludes such seams from the confirm batch until edited
+- [x] Visibility: verification command shown on every seam card in every mode (pre-filled, editable — ✏ Edit available in Autonomous too); live campaign view displays the running command (`GET /campaign/{id}` now carries `testCommand`)
+- [x] Execution unchanged: only the source of the command differs
 
 ---
 

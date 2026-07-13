@@ -8,9 +8,10 @@ Flagged contract additions (need team approval, section 13):
 - GET /repo/{id}/graph serves dependency-graph nodes/edges for the frontend's
   React Flow views; section 7 defines the graph visually but gives it no
   endpoint.
-- POST /repo/{id}/plan is the AI Planning Stage: a natural-language migration
-  intent goes in, a validated seam spec (patterns/scope/confidence) comes out
-  and feeds the existing seam -> campaign pipeline.
+- POST /repo/{id}/discover is the AI planning pipeline (shared by AI
+  Discovery and Autonomous modes): a natural-language objective goes in,
+  grounded candidate seams come out, and human-confirmed seams feed the
+  existing seam -> campaign pipeline.
 """
 
 import asyncio
@@ -30,9 +31,13 @@ import models
 from discovery import candidates as discovery
 from errors import ApiError
 from execution import engine, splitter, worktree
-from planning import planner, seam_discovery
+from planning import seam_discovery
 from pr import assembler, local_apply
-from repo_config import infer_test_command, load_repo_config
+from repo_config import (
+    infer_test_command,
+    infer_test_command_for_files,
+    load_repo_config,
+)
 from ws import manager
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -181,33 +186,6 @@ async def get_graph(repo_id: str) -> models.GraphOut:
     )
 
 
-@app.post("/repo/{repo_id}/plan", response_model=models.PlanOut)
-async def create_plan(repo_id: str, body: models.PlanIn) -> models.PlanOut:
-    """FLAGGED contract addition — AI Planning Stage.
-
-    Turns a natural-language migration intent into a validated seam spec
-    (beforePattern/afterPattern/scopeGlobs/confidence). The result is advisory
-    and stateless: the client submits it via POST /repo/{id}/seam, either as a
-    manualSeam or as candidateId overrides.
-    """
-    row = await _get_ready_repo(repo_id)
-    repo_id = str(row["repo_id"])
-    if not body.intent.strip():
-        raise ApiError(400, "plan_intent_invalid", "intent must be a non-empty string")
-
-    repo_path = _repo_path(repo_id)
-    try:
-        plan = await asyncio.to_thread(planner.plan_migration, repo_path, body.intent)
-    except planner.PlanValidationError as exc:
-        raise ApiError(400, exc.code, str(exc))
-    except planner.PlanGenerationError as exc:
-        raise ApiError(502, "plan_generation_failed", str(exc))
-
-    if plan["testCommand"] is None:
-        plan["testCommand"] = infer_test_command(repo_path)
-    return models.PlanOut(repoId=repo_id, intent=body.intent, **plan)
-
-
 @app.post("/repo/{repo_id}/discover", response_model=models.DiscoveryOut)
 async def discover_seams(repo_id: str, body: models.DiscoverIn) -> models.DiscoveryOut:
     """FLAGGED contract addition — AI Seam Discovery.
@@ -232,10 +210,15 @@ async def discover_seams(repo_id: str, body: models.DiscoverIn) -> models.Discov
     except seam_discovery.DiscoveryError as exc:
         raise ApiError(502, "seam_discovery_failed", str(exc))
 
-    test_fallback = infer_test_command(repo_path)
+    # Verification command inference: model suggestion wins; otherwise a
+    # seam-scoped inferred command (monorepo-aware). Still-None commands are
+    # a legal outcome — the UI requires the human to fill them before any
+    # mode (including Autonomous) can execute that seam.
     for seam in discovery_result["seams"]:
         if seam["testCommand"] is None:
-            seam["testCommand"] = test_fallback
+            seam["testCommand"] = infer_test_command_for_files(
+                repo_path, seam["groundedFiles"]
+            )
     return models.DiscoveryOut(repoId=repo_id, **discovery_result)
 
 
@@ -367,10 +350,12 @@ async def get_campaign(campaign_id: str) -> models.CampaignOut:
     units = await db.fetch(
         "SELECT * FROM units WHERE campaign_id = $1 ORDER BY created_at", campaign_id
     )
+    seam = await db.fetchrow("SELECT test_command FROM seams WHERE seam_id = $1", campaign["seam_id"])
     return models.CampaignOut(
         campaignId=campaign_id,
         seamId=str(campaign["seam_id"]),
         status=campaign["status"],
+        testCommand=seam["test_command"] if seam else "",
         units=[
             models.UnitOut(
                 unitId=str(unit["unit_id"]),

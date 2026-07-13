@@ -65,7 +65,7 @@ Completion ── publishing is a separate, optional concern:
                                      units listed for follow-up
 ```
 
-**AI Discovery** is the default entry point, but not the only one: **Guided** mode lets you type the seam (patterns, scope, test command) by hand, and **Autonomous** mode runs the *exact same* discovery pipeline but auto-approves every discovered seam and continues straight to execution — the approval pause is the only difference between the two AI modes; there is a single planning implementation behind both. Repos can optionally carry a `.migration-foreman.json` to pre-configure their seam — it's an advanced override, never a prerequisite.
+**AI Discovery** is the default entry point, but not the only one: **Guided** mode lets you type the seam (patterns, scope, test command) by hand, and **Autonomous** mode runs the *exact same* discovery pipeline with minimal interaction — the discovered seams are presented once and a single **Confirm & execute** click runs them all, versus AI Discovery's full per-seam approve/edit/reject. Both AI modes share one planning implementation and both require explicit human confirmation before execution; neither ever needs manual before/after patterns or a `.migration-foreman.json` (repos can still carry one as an advanced override for Guided mode, never a prerequisite).
 
 When several seams are approved at once, they execute one campaign at a time in dependency-respecting order: the first campaign starts immediately, and each campaign-summary page offers **Start next seam campaign** until the approved queue is drained.
 
@@ -83,6 +83,8 @@ Then either open the UI at **http://localhost:3000**, or drive everything from t
 python scripts/run_campaign.py --repo-url /app/data/demo-repo \
     --intent "Migrate legacy_format to format_text"
 ```
+
+The CLI uses the same discovery pipeline as the UI: it prints the discovered seams and asks for confirmation before executing (pass `--yes` for unattended runs).
 
 `MOCK_CODEX=1` runs the entire pipeline (planning, grounding, worktrees, test gate, retries, escalation, live WebSocket stream) with a deterministic offline stand-in for the LLM — no API key needed.
 
@@ -109,6 +111,8 @@ and click **Discover seams**. Nothing about the repository's structure needs to 
     Verification: python -m pytest -q
     + grounded file list, dependencies on other seams
 ```
+
+The **verification command** is always visible on every card, in every mode — pre-filled, never hidden. When the model doesn't supply one it is inferred from the repository itself: `package.json` scripts (preferring `test` → `test:unit` → `test:ci`; `watch`/`e2e`/`dev` scripts are never auto-selected), `Makefile` test targets, pytest/unittest signals, or Cargo/Go/Maven/Gradle/.NET manifests — scoped per top-level directory in monorepos. No confident match is a legal outcome: the field says so and stays editable, and Autonomous mode excludes such seams from execution until a human fills the command in. Nothing ever runs unverified.
 
 **4. Human approval — the mandatory checkpoint.** Each card has **✓ Approve**, **✏ Edit** (title, patterns, scope, test command), and **✕ Reject**. The bottom bar offers **Approve selected & execute**, **Approve all**, and **Cancel migration**. Seams are only created — and the first campaign only starts — when you approve; with several approved seams, the rest queue up and each campaign summary offers **Start next seam campaign**.
 
@@ -149,9 +153,8 @@ Backend at http://localhost:8000 (interactive docs at `/docs`):
 | `POST /repo` | Clone + analyze a repository |
 | `GET /repo/{id}/candidates` | Ranked migration candidates |
 | `GET /repo/{id}/graph` | Dependency graph for the frontend views |
-| `POST /repo/{id}/discover` | **AI Seam Discovery**: objective in, repo analysis + grounded candidate seams out (read-only, advisory — approval happens before anything is created) |
-| `POST /repo/{id}/plan` | AI Planning Stage (single-seam precursor to discovery): intent in, grounded migration spec out |
-| `POST /repo/{id}/seam` | Create a seam (from an approved discovered seam, a candidate, or manually) |
+| `POST /repo/{id}/discover` | **AI Seam Discovery** — the one planning pipeline (AI Discovery + Autonomous + CLI): objective in, repo analysis + grounded candidate seams out (read-only, advisory — confirmation happens before anything is created) |
+| `POST /repo/{id}/seam` | Create a seam (from a confirmed discovered seam, a candidate, or manually) |
 | `POST /campaign` | Start a migration campaign |
 | `GET /campaign/{id}` | Campaign + unit status |
 | `GET /campaign/{id}/unit/{id}/preview` | Before/after file contents + full test output for the Live Preview view |

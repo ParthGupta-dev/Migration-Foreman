@@ -27,30 +27,6 @@ class CandidatesOut(BaseModel):
     candidates: list[CandidateOut]
 
 
-class PlanIn(BaseModel):
-    intent: str
-
-
-class PlanOut(BaseModel):
-    repoId: str
-    intent: str
-    migrationName: str
-    beforePattern: str
-    afterPattern: str
-    scopeGlobs: list[str]
-    invariants: list[str]
-    testCommand: str | None
-    risk: str  # low | medium | high
-    breakingChanges: bool
-    confidence: float
-    reasoning: str
-    # Grounding telemetry (computed against the clone, not model estimates):
-    groundedFiles: list[str]
-    matchedOccurrences: int
-    unsupportedFiles: list[str]
-    repairedScope: bool
-
-
 class DiscoverIn(BaseModel):
     objective: str
 
@@ -155,6 +131,9 @@ class CampaignOut(BaseModel):
     campaignId: str
     seamId: str
     status: str
+    # The seam's verification command, surfaced so the live campaign view can
+    # show what every unit is being verified with (esp. when it was inferred).
+    testCommand: str
     units: list[UnitOut]
 
 

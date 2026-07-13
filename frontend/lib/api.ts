@@ -10,7 +10,6 @@ import type {
   GithubStatus,
   GraphResponse,
   HealthResponse,
-  Plan,
   Repo,
   Seam,
   SeamRequest,
@@ -63,9 +62,6 @@ export const api = {
 
   getGraph: (repoId: string) =>
     request<GraphResponse>("GET", `/repo/${repoId}/graph`),
-
-  createPlan: (repoId: string, intent: string) =>
-    request<Plan>("POST", `/repo/${repoId}/plan`, { intent }),
 
   discoverSeams: (repoId: string, objective: string) =>
     request<Discovery>("POST", `/repo/${repoId}/discover`, { objective }),

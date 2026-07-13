@@ -181,7 +181,10 @@ def _generate(repo_path: Path, objective: str, summary: dict) -> list[dict]:
     if config.MOCK_CODEX:
         # Offline path: the single-seam mock planner becomes a one-seam
         # discovery so the approval flow still exercises end to end.
-        proposal = planner._mock_plan(objective)
+        try:
+            proposal = planner._mock_plan(objective)
+        except ValueError as exc:
+            raise DiscoveryError(str(exc)) from exc
         proposal["title"] = proposal.pop("migrationName")
         proposal["description"] = "MOCK_CODEX single-seam decomposition of the objective."
         proposal["dependsOn"] = []

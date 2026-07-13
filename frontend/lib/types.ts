@@ -1,5 +1,5 @@
 // Mirrors the backend contracts (PROJECT.md section 7 plus the flagged
-// additions in backend/main.py: GET /repo/{id}/graph, POST /repo/{id}/plan,
+// additions in backend/main.py: GET /repo/{id}/graph, POST /repo/{id}/discover,
 // and the optional seam overrides for repos without .migration-foreman.json).
 
 export type RepoStatus = "pulling" | "ready" | "failed";
@@ -59,29 +59,7 @@ export interface SeamRequest {
   testCommand?: string;
 }
 
-// --- AI Planning Stage: POST /repo/{id}/plan ---
-
 export type PlanRisk = "low" | "medium" | "high";
-
-export interface Plan {
-  repoId: string;
-  intent: string;
-  migrationName: string;
-  beforePattern: string;
-  afterPattern: string;
-  scopeGlobs: string[];
-  invariants: string[];
-  testCommand: string | null;
-  risk: PlanRisk;
-  breakingChanges: boolean;
-  confidence: number;
-  reasoning: string;
-  // Grounding telemetry, computed against the actual clone:
-  groundedFiles: string[];
-  matchedOccurrences: number;
-  unsupportedFiles: string[];
-  repairedScope: boolean;
-}
 
 // --- AI Seam Discovery: POST /repo/{id}/discover ---
 
@@ -180,6 +158,9 @@ export interface Campaign {
   campaignId: string;
   seamId: string;
   status: CampaignStatus;
+  // The seam's verification command — shown live so an inferred command that
+  // guessed wrong is visible immediately, not three retries deep.
+  testCommand: string;
   units: Unit[];
 }
 

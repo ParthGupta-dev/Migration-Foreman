@@ -7,9 +7,10 @@ interface SeamDiscoveryPanelProps {
   discovery: Discovery | null;
   discovering: boolean;
   launching: boolean;
-  // Autonomous mode runs the identical discovery pipeline but auto-approves
-  // every discovered seam (handled by the parent) instead of pausing here,
-  // so the approval controls are hidden.
+  // Autonomous mode runs the identical discovery pipeline; the difference is
+  // interaction depth. Instead of per-seam approve/edit/reject it presents
+  // the discovered seams with a single confirm-and-execute action — still a
+  // mandatory human checkpoint before anything runs.
   autonomous?: boolean;
   onDiscover: (objective: string) => void;
   onApprove: (seams: DiscoveredSeam[]) => void;
@@ -115,7 +116,7 @@ export default function SeamDiscoveryPanel({
       <form onSubmit={handleDiscover} className="space-y-2">
         <label className="text-xs font-medium text-slate-400">
           {autonomous
-            ? "Engineering objective (plain English) — discovered seams are auto-approved and execution starts immediately"
+            ? "Engineering objective (plain English) — the AI discovers the seams end to end; you confirm once and it executes"
             : "Engineering objective (plain English) — the AI discovers the migration seams; nothing executes without your approval"}
         </label>
         <div className="flex gap-2">
@@ -131,11 +132,7 @@ export default function SeamDiscoveryPanel({
             disabled={!objective.trim() || discovering}
             className="whitespace-nowrap rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            {discovering
-              ? "Discovering…"
-              : autonomous
-                ? "Discover & execute"
-                : "Discover seams"}
+            {discovering ? "Discovering…" : "Discover seams"}
           </button>
         </div>
       </form>
@@ -252,6 +249,19 @@ export default function SeamDiscoveryPanel({
                   {seam.description && (
                     <p className="text-xs text-slate-400">{seam.description}</p>
                   )}
+                  {/* Always visible in every mode: the command each unit will
+                      be verified with (inferred when the model didn't supply
+                      one), pre-filled and editable — never hidden. */}
+                  <p className="text-xs">
+                    <span className="text-slate-500">Verification command:</span>{" "}
+                    {seam.testCommand ? (
+                      <span className="font-mono text-slate-300">{seam.testCommand}</span>
+                    ) : (
+                      <span className="text-amber-400">
+                        none inferred — ✏ Edit to add one
+                      </span>
+                    )}
+                  </p>
                   {blockedDeps.length > 0 && decision === "approved" && (
                     <p className="text-xs text-amber-400">
                       ! Depends on rejected seam(s): {blockedDeps.join(", ")}
@@ -339,8 +349,11 @@ export default function SeamDiscoveryPanel({
                     </div>
                   )}
 
-                  {!autonomous && (
+                  {/* Edit is available in EVERY mode (the verification command
+                      must always be correctable); approve/reject are the
+                      AI-Discovery-only per-seam decisions. */}
                   <div className="flex gap-2">
+                    {!autonomous && (
                     <button
                       type="button"
                       onClick={() => setDecision(seam.seamId, "approved")}
@@ -352,6 +365,7 @@ export default function SeamDiscoveryPanel({
                     >
                       ✓ Approve
                     </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => {
@@ -362,6 +376,7 @@ export default function SeamDiscoveryPanel({
                     >
                       ✏ Edit
                     </button>
+                    {!autonomous && (
                     <button
                       type="button"
                       onClick={() => setDecision(seam.seamId, "rejected")}
@@ -373,8 +388,8 @@ export default function SeamDiscoveryPanel({
                     >
                       ✕ Reject
                     </button>
+                    )}
                   </div>
-                  )}
                 </div>
               );
             })}
@@ -383,11 +398,48 @@ export default function SeamDiscoveryPanel({
           {/* Approval bar — the mandatory human checkpoint (hidden in
               autonomous mode, where the parent auto-approves) */}
           {autonomous ? (
-            <p className="text-sm text-slate-400">
-              {launching
-                ? "Autonomous mode: seams auto-approved — creating seams and starting the first campaign…"
-                : "Autonomous mode: discovered seams are approved automatically."}
-            </p>
+            /* Autonomous: same pipeline, minimal interaction — one confirm
+               click covers every executable discovered seam. */
+            <div className="space-y-2">
+              {effectiveSeams.some((seam) => !seam.testCommand) && (
+                <p className="text-xs text-amber-400">
+                  ! No confident verification command for:{" "}
+                  {effectiveSeams
+                    .filter((seam) => !seam.testCommand)
+                    .map((seam) => seam.title)
+                    .join(", ")}{" "}
+                  — excluded from execution until you ✏ Edit and add one
+                </p>
+              )}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => submit(effectiveSeams.filter((seam) => seam.testCommand))}
+                  disabled={
+                    launching || !effectiveSeams.some((seam) => seam.testCommand)
+                  }
+                  className="flex-1 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {launching
+                    ? "Creating seams & starting…"
+                    : `Confirm & execute ${
+                        effectiveSeams.filter((seam) => seam.testCommand).length
+                      } discovered seam(s)`}
+                </button>
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  disabled={launching}
+                  className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:border-red-800 hover:text-red-400"
+                >
+                  Cancel
+                </button>
+              </div>
+              <p className="text-xs text-slate-600">
+                Autonomous mode discovered these seams end to end — this
+                confirmation is the only interaction before execution.
+              </p>
+            </div>
           ) : (
           <>
           {missingTest.length > 0 && (

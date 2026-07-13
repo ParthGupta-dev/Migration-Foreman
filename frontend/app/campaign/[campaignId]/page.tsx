@@ -64,6 +64,12 @@ export default function LiveCampaignPage() {
         <p className="text-sm text-slate-500">Loading campaign…</p>
       ) : (
         <>
+          {campaign.testCommand && (
+            <p className="text-xs text-slate-400">
+              <span className="text-slate-500">Verification command:</span>{" "}
+              <span className="font-mono">{campaign.testCommand}</span>
+            </p>
+          )}
           {graph ? (
             <DependencyGraph
               nodes={graph.nodes}
