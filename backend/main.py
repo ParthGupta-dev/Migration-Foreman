@@ -30,8 +30,8 @@ import models
 from discovery import candidates as discovery
 from errors import ApiError
 from execution import engine, splitter, worktree
-from planning import planner
-from pr import assembler
+from planning import planner, seam_discovery
+from pr import assembler, local_apply
 from repo_config import infer_test_command, load_repo_config
 from ws import manager
 
@@ -206,6 +206,37 @@ async def create_plan(repo_id: str, body: models.PlanIn) -> models.PlanOut:
     if plan["testCommand"] is None:
         plan["testCommand"] = infer_test_command(repo_path)
     return models.PlanOut(repoId=repo_id, intent=body.intent, **plan)
+
+
+@app.post("/repo/{repo_id}/discover", response_model=models.DiscoveryOut)
+async def discover_seams(repo_id: str, body: models.DiscoverIn) -> models.DiscoveryOut:
+    """FLAGGED contract addition — AI Seam Discovery.
+
+    A high-level engineering objective goes in ("Modernize authentication");
+    a read-only repository analysis plus grounded candidate seams come out.
+    The result is advisory and stateless: nothing is written and nothing
+    executes. The client presents the seams for human approval and submits
+    each approved seam through the existing POST /repo/{id}/seam ->
+    POST /campaign pipeline.
+    """
+    row = await _get_ready_repo(repo_id)
+    repo_id = str(row["repo_id"])
+    if not body.objective.strip():
+        raise ApiError(400, "discovery_objective_invalid", "objective must be a non-empty string")
+
+    repo_path = _repo_path(repo_id)
+    try:
+        discovery_result = await asyncio.to_thread(
+            seam_discovery.discover_seams, repo_path, body.objective
+        )
+    except seam_discovery.DiscoveryError as exc:
+        raise ApiError(502, "seam_discovery_failed", str(exc))
+
+    test_fallback = infer_test_command(repo_path)
+    for seam in discovery_result["seams"]:
+        if seam["testCommand"] is None:
+            seam["testCommand"] = test_fallback
+    return models.DiscoveryOut(repoId=repo_id, **discovery_result)
 
 
 @app.post("/repo/{repo_id}/seam", response_model=models.SeamOut)
@@ -413,8 +444,8 @@ async def unit_preview(campaign_id: str, unit_id: str) -> models.UnitPreviewOut:
     )
 
 
-@app.post("/campaign/{campaign_id}/finalize", response_model=models.FinalizeOut)
-async def finalize_campaign(campaign_id: str) -> models.FinalizeOut:
+async def _completed_campaign_context(campaign_id: str, action: str) -> dict:
+    """Shared guards + data for the two publishing paths (apply / finalize)."""
     campaign_id = _require_uuid(campaign_id, "campaign_not_found")
     campaign = await db.fetchrow("SELECT * FROM campaigns WHERE campaign_id = $1", campaign_id)
     if campaign is None:
@@ -422,38 +453,92 @@ async def finalize_campaign(campaign_id: str) -> models.FinalizeOut:
     if campaign["status"] != "completed":
         raise ApiError(
             400, "campaign_not_completed",
-            f"Campaign status is '{campaign['status']}'; finalize requires 'completed'",
+            f"Campaign status is '{campaign['status']}'; {action} requires 'completed'",
         )
 
     seam = await db.fetchrow("SELECT * FROM seams WHERE seam_id = $1", campaign["seam_id"])
     repo = await db.fetchrow("SELECT * FROM repos WHERE repo_id = $1", seam["repo_id"])
     repo_path = _repo_path(str(repo["repo_id"]))
+    if not repo_path.is_dir():
+        raise ApiError(409, "repo_missing_on_disk", "Repo clone missing; re-ingest via POST /repo")
 
     units = await db.fetch(
         "SELECT scope_glob, status, attempt FROM units WHERE campaign_id = $1 ORDER BY created_at",
         campaign_id,
     )
-    accepted = [unit["scope_glob"] for unit in units if unit["status"] == "passed"]
-    escalated = [
-        {"scopeGlob": unit["scope_glob"], "attempt": unit["attempt"]}
-        for unit in units if unit["status"] == "escalated"
-    ]
+    return {
+        "campaignId": campaign_id,
+        "repoUrl": repo["repo_url"],
+        "repoPath": repo_path,
+        "campaignBranch": f"mf/campaign-{campaign_id[:8]}",
+        "accepted": [unit["scope_glob"] for unit in units if unit["status"] == "passed"],
+        "escalated": [
+            {"scopeGlob": unit["scope_glob"], "attempt": unit["attempt"]}
+            for unit in units if unit["status"] == "escalated"
+        ],
+    }
 
-    campaign_branch = f"mf/campaign-{campaign_id[:8]}"
+
+@app.post("/campaign/{campaign_id}/apply", response_model=models.ApplyOut)
+async def apply_campaign_locally(campaign_id: str) -> models.ApplyOut:
+    """Default publishing path: apply the verified changes to the local clone.
+
+    Merges the campaign branch (accepted, test-verified units only) into the
+    repo's default branch. No GitHub authentication involved — PR creation
+    (POST /finalize) is the optional alternative.
+    """
+    ctx = await _completed_campaign_context(campaign_id, "apply")
+    try:
+        result = await asyncio.to_thread(
+            local_apply.apply_local, ctx["repoPath"], ctx["campaignBranch"]
+        )
+    except local_apply.LocalApplyError as exc:
+        raise ApiError(502, "local_apply_failed", str(exc))
+
+    if result["alreadyApplied"] and not result["changedFiles"]:
+        # The diff is empty once merged; the accepted units are the files.
+        result["changedFiles"] = ctx["accepted"]
+    return models.ApplyOut(
+        campaignId=ctx["campaignId"],
+        acceptedUnits=len(ctx["accepted"]),
+        escalatedUnits=len(ctx["escalated"]),
+        **result,
+    )
+
+
+@app.post("/campaign/{campaign_id}/finalize", response_model=models.FinalizeOut)
+async def finalize_campaign(
+    campaign_id: str, body: models.FinalizeIn | None = None
+) -> models.FinalizeOut:
+    """Optional publishing path: push the campaign branch and open a GitHub PR.
+
+    The token comes from the request body (connect-GitHub UI flow) or falls
+    back to the GITHUB_TOKEN env var.
+    """
+    ctx = await _completed_campaign_context(campaign_id, "finalize")
     try:
         pr_url = await asyncio.to_thread(
-            assembler.create_pr, repo["repo_url"], repo_path, campaign_branch, accepted, escalated
+            assembler.create_pr,
+            ctx["repoUrl"], ctx["repoPath"], ctx["campaignBranch"],
+            ctx["accepted"], ctx["escalated"],
+            body.githubToken if body else None,
         )
     except assembler.PrCreationError as exc:
         # Fallback plan: frontend shows the aggregated diffs instead.
         raise ApiError(502, "pr_creation_failed", str(exc))
 
     return models.FinalizeOut(
-        campaignId=campaign_id,
+        campaignId=ctx["campaignId"],
         prUrl=pr_url,
-        acceptedUnits=len(accepted),
-        escalatedUnits=len(escalated),
+        acceptedUnits=len(ctx["accepted"]),
+        escalatedUnits=len(ctx["escalated"]),
     )
+
+
+@app.get("/github/status", response_model=models.GithubStatusOut)
+async def github_status() -> models.GithubStatusOut:
+    """Whether the backend already has GitHub credentials (env GITHUB_TOKEN)."""
+    return models.GithubStatusOut(connected=bool(config.GITHUB_TOKEN))
 
 
 # --- WebSocket ----------------------------------------------------------
