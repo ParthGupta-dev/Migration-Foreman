@@ -2,6 +2,12 @@
 
 Design authority: Sujat. This is the only frontend redesign doc — do not create or reference any other design/spec file.
 
+> **Revision 2 (2026-07-13, approved by Sujat):** direction changed from dark
+> industrial charcoal to a **clean light dashboard** — white cards on a soft
+> gray canvas, rounded corners, tinted status pills, minimal color. §2, §3,
+> §5.1, §6, §7 and §8 updated to match. The round-1 dark flow scene survives
+> only as `design/mocks/overview-scene.html` (superseded, reference only).
+
 ## 0. Process — read this first
 
 **Design happens in HTML mocks before any React is written.** Claude Code builds a static HTML/CSS mockup for each page/state and commits it to `design/mocks/`. Sujat reviews and iterates on the mock directly — asking for changes, rejecting, approving — before any real Next.js component exists. Do not build a page's React implementation until its mock in `design/mocks/` is explicitly approved. If unsure whether a mock is approved, ask.
@@ -17,25 +23,33 @@ Functional skeleton, zero identity: default Tailwind slate + blue-600, no fonts 
 
 ## 2. Design principles (binding on every mock and every implementation)
 
-1. **Charcoal, not slate.** Warm-neutral charcoal base. If a surface reads blue-ish, it's wrong.
+1. **Clean light, not slate-dark.** White cards on a soft gray canvas. Color is reserved for status; the chrome is neutral. If a surface shouts, it's wrong.
 2. **Aggressive removal.** Raw algorithm scores, decorative charts, redundant labels — delete, don't restyle. In doubt: remove.
-3. **Effort heuristic.** Precision is the aesthetic: 8px grid, `tabular-nums` on every figure, uniform 2px radii, aligned 1px borders.
-4. **Motion lives in the flow scene; the chrome stays still.** Expressive animation belongs to the Overview scene only. Elsewhere: drawer slide, log auto-scroll, lamp pulse — nothing else moves. `prefers-reduced-motion` respected everywhere.
+3. **Effort heuristic.** Precision is the aesthetic: 8px grid, `tabular-nums` on every figure, consistent 12px card radii, aligned 1px borders, one shadow token.
+4. **The chrome stays still.** Motion is limited to drawer slide, log auto-scroll, and lamp pulse — nothing else moves. `prefers-reduced-motion` respected everywhere.
 5. **Peak-end.** The Summary page's mono tally line ("14/15 units migrated and verified autonomously · 1 escalated · 47 min") is the demo's final frame. Build it as carefully as the live views.
 
 ## 3. Design tokens (replace, don't extend)
 
-In `tailwind.config.ts` under `theme.extend.colors.foreman.*`. Delete the dead `status.*` tokens (zero usages, per audit) and the duplicate hex map in `utils/formatUnitStatus.ts` — after this, that util maps status → token name, one source of truth.
+In `tailwind.config.ts` under `theme.extend.colors.foreman.*`. Delete the dead `status.*` tokens (zero usages, per audit) and the duplicate hex map in `utils/formatUnitStatus.ts` — after this, that util maps status → token name, one source of truth. The live reference implementation is `design/mocks/foreman.css`.
 
 ```
-bg #14161A · surface #1C1F25 · surface2 #24282F · line #32373F
-ink #E8EAED · dim #9AA0A8 · accent #E85D04 (safety orange)
-ok #3FB950 · run #58A6FF · retry #D29922 · fail #F85149 · queued #6E7681
+bg #F6F7F9 · card #FFFFFF · line #E6E8EC
+ink #101828 · dim #667085 · faint #98A2B3
+primary #111827 (near-black buttons) · link #2563EB
+accent #E85D04 (brand/logo mark ONLY)
+
+status (solid / tint-bg / tint-text):
+ok     #16A34A / #ECFDF3 / #067647
+run    #2563EB / #EFF4FF / #1D4ED8
+retry  #F59E0B / #FFFAEB / #B54708
+fail   #EF4444 / #FEF3F2 / #B42318
+queued #98A2B3 / #F2F4F7 / #475467
 ```
 
-Rules: status colors ONLY on lamps, tile borders, log verbs, scene tokens. Accent ONLY on primary buttons, links, focus rings, progress, logo square. **Escalated = `fail` red. Current purple is off-system — remove everywhere** (badge, graph node, panel). Primary buttons: blue-600 → accent.
+Rules: status colors ONLY on lamps, pills, bars, tile tints and log verbs — never on chrome. Pills use the tint-bg/tint-text pairs (soft rounded badges, like "Paid" in a payments dashboard). Primary buttons are near-black `primary`; links are `link` blue. **Escalated = `fail` red. Current purple is off-system — remove everywhere** (badge, graph node, panel).
 
-Fonts via `next/font/google`: Archivo (500/600) for UI, IBM Plex Mono (400/500) for every number, ID, path, log line, diff. Radius 2px global (kill `rounded-lg`/`rounded-full`; lamps are the only circles). No shadows except the drawer. Restore visible focus rings (2px accent) globally — current `focus:outline-none` pattern is banned.
+Fonts via `next/font/google`: Inter (400/500/600/700) for UI including big bold KPI figures (`tabular-nums`), IBM Plex Mono (400/500) for paths, IDs, log lines, diffs, code. Radii: cards 12px, controls 8px, pills/lamps round. One shadow token (`0 1px 2px rgba(16,24,40,.05)`) on cards, a stronger one on the drawer only. No gradients. Restore visible focus rings (2px `link` blue) globally — current `focus:outline-none` pattern is banned.
 
 ## 4. Shell & information architecture
 
@@ -68,7 +82,7 @@ Two columns. No third column — background task status lives in the sidebar, no
 
 ## 5. Pages
 
-**5.1 Overview** — the live flow scene. Pipeline as spatial flow, driven by WS events: PLAN → WORKTREES (parallel lanes) → GATE → ACCEPTED → PR, plus a RETRY LOOP (amber, back into a lane) and ESCALATION DOCK (red siding). Unit tokens move on `unit_status` events. Isometric 2.5D SVG + GSAP, not Three.js. Click a token → same drawer as Units. Idle state doubles as the product explainer, one caption line beneath. **Built only after the §0 mock process reaches approval.**
+**5.1 Overview** — a clean KPI dashboard (mock: `design/mocks/overview.html`), live via the existing WS events. Four KPI cards (Accepted x/y, In flight, First-pass rate, Escalated) · a "Needs attention" chip row linking to Review/Units · a Live activity feed (recent `unit_status` events as pill rows, "View all" → Log) · Units-by-status distribution bars · a compact seam summary. No decorative charts — every figure is real campaign state. Idle (no campaign) state doubles as the product explainer. *(Supersedes the round-1 isometric flow scene, kept at `design/mocks/overview-scene.html` for reference.)*
 
 **5.2 Seam** — current wizard content as a page: repo input → mode → seam definition → grounded plan review → dependency graph → confirm & start. `CandidateList`: raw `combined/centrality/activity` scores become one plain-language line, exact scores in a tooltip. Keep `DependencyGraph`, recolor to tokens, add a legend.
 
@@ -95,7 +109,7 @@ Two columns. No third column — background task status lives in the sidebar, no
 | `CampaignSummaryChart.tsx` | DELETE (+ recharts from package.json) |
 | `StatusBadge.tsx` | Keep; recolor, purple → red |
 | `PlanIntentForm/ManualSeamForm/ModeToggle/CandidateList/DependencyGraph` | Keep on Seam page, reskin |
-| NEW `components/FlowScene.tsx` | Overview scene — built only after mock approval |
+| NEW `components/OverviewDashboard.tsx` (+ `KpiCard`, `StatusBars`, `ActivityFeed`) | Overview page — built only after mock approval |
 | `globals.css` | Charcoal body, focus rings, scrollbar to tokens |
 
 ## 7. Phases (each = one PR on `redesign/control-room`)
@@ -104,7 +118,7 @@ Two columns. No third column — background task status lives in the sidebar, no
 2. **Shell + routing** — sidebar, 6 route segments, ACTIVE widget, top strip.
 3. **Units page** — board, tiles, drawer migration.
 4. **Log + Review + Summary pages** — DispatchLog merge, ReviewQueue, tally line, delete recharts.
-5. **Overview flow scene — mock first.** Claude Code builds a standalone HTML/CSS/JS mock at `design/mocks/overview-scene.html` (no app wiring, static/fake data): 5 states (idle, running, retry looping, escalation docked, complete) + the gate-fail → retry transition. Iterate on this file directly with Sujat until he approves it. Only after approval does real `components/FlowScene.tsx` begin, wired to live WS data.
+5. **Overview dashboard** — KPI cards, needs-attention row, activity feed, status bars, wired to live WS + campaign data. Mock: `design/mocks/overview.html`; implement only after its approval.
 6. **GATED (backend + team approval):** pause/resume, escalation actions, per-unit token cost. New routes — flag per CLAUDE.md before touching.
 
 ## 8. Acceptance (reject any phase that fails)
@@ -112,7 +126,7 @@ Two columns. No third column — background task status lives in the sidebar, no
 - Every page was implemented from an approved mock in `design/mocks/`, not invented from prose
 - Zero `slate-*` classes, zero gradients, zero purple, zero recharts
 - Sidebar nav works on every page; ACTIVE widget updates live via WS
-- All figures/IDs/paths/logs in IBM Plex Mono with `tabular-nums`
+- Figures use `tabular-nums`; paths/IDs/logs/diffs in IBM Plex Mono
 - Esc closes drawer; visible focus everywhere; `motion-reduce` verified
-- 1440px screenshots read as internal infra tooling, not a template
+- 1440px screenshots read as a clean, modern ops dashboard, not a template
 - Summary renders the mono tally line with real campaign numbers
