@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Foreman — Review (mock)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="foreman.css">
+<style>
+  .esc-card { border-color: #FDA29B; }
+  .esc-head { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+  .esc-head .when { margin-left: auto; color: var(--dim); font-size: 12px; }
+  .esc-reason { font-size: 13px; margin-bottom: 16px; }
+  .esc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .esc-grid h3 { font-size: 11px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--dim); margin-bottom: 8px; }
+  .phase-note { margin-top: 16px; }
+  .mock-toggle { margin-bottom: 24px; }
+  @media (max-width: 1100px) { .esc-grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="logo"><span class="logo-mark"></span><span class="logo-word">Foreman</span></div>
+    <nav class="nav" aria-label="Main">
+      <a class="nav-item" href="overview.html">Overview</a>
+      <a class="nav-item" href="seam.html">Seam</a>
+      <a class="nav-item" href="units.html">Units</a>
+      <a class="nav-item" href="log.html">Log</a>
+      <a class="nav-item active" href="review.html" aria-current="page">Review <span class="nav-badge">1</span></a>
+      <a class="nav-item" href="summary.html">Summary</a>
+    </nav>
+    <div class="sidebar-sep"></div>
+    <div class="active-label">Active</div>
+    <a class="campaign-chip" href="#">
+      <span class="lamp st-run pulse"></span>
+      <span>demo-repo</span>
+      <span class="chip-frac mono">9/15</span>
+    </a>
+    <p class="mock-note">mock · 1 escalation<br>other mocks: <a href="index.html">index</a></p>
+  </aside>
+
+  <main class="content">
+    <header class="topstrip">
+      <div class="ts-row">
+        <span class="campaign-name mono">mf/campaign-3f9a2c1e</span>
+        <span class="state-chip"><span class="lamp st-run pulse"></span>RUNNING</span>
+        <span class="ts-frac mono">9/15 accepted</span>
+      </div>
+      <div class="progress"><div class="progress-fill" style="width:60%"></div></div>
+    </header>
+
+    <div class="page">
+      <h1 class="page-title">Review</h1>
+      <p class="page-sub">Units the foreman could not verify after three rounds. Read-only for now — triage actions arrive in Phase 6.</p>
+
+      <div class="mock-toggle">
+        <button class="btn btn-ghost btn-sm" onclick="toggleEmpty()">mock: toggle empty state</button>
+      </div>
+
+      <div id="queue">
+        <section class="card esc-card">
+          <div class="esc-head">
+            <span class="lamp lamp-lg st-fail"></span>
+            <span class="mono" style="font-size:14px">src/exporter.py</span>
+            <span class="mono" style="font-size:11px; color:var(--queued)">U-07</span>
+            <span class="when mono">escalated 14:27:19 · after 3 rounds · 25 min in flight</span>
+          </div>
+          <p class="esc-reason">Tests still failing after 3 rounds. The export column-width assertions depend on the exact padding behavior of <span class="mono">legacy_format</span>; a mechanical swap changes alignment. Likely needs a human decision on whether the fixture or the code is right.</p>
+
+          <div class="esc-grid">
+            <div>
+              <h3>Failure log · round 3</h3>
+              <div class="codeblock"><span class="ln">FAIL: test_export_columns (tests.test_exporter)</span><span class="ln">AssertionError:</span><span class="ln del">- 'NAME      QTY   PRICE '</span><span class="ln add">+ 'NAME    QTY  PRICE'</span><span class="ln"> </span><span class="ln">FAIL: test_export_footer (tests.test_exporter)</span><span class="ln">AssertionError: footer width 38 != 42</span><span class="ln"> </span><span class="ln">Ran 6 tests — failures=2</span></div>
+            </div>
+            <div>
+              <h3>Last attempted diff</h3>
+              <div class="codeblock"><span class="ln hunk">@@ src/exporter.py:88 @@</span><span class="ln">     def header_row(self):</span><span class="ln del">-        cells = [legacy_format(c, width=10)</span><span class="ln del">-                 for c in self.columns]</span><span class="ln add">+        cells = [format_text(c, width=10)</span><span class="ln add">+                 for c in self.columns]</span><span class="ln">         return "".join(cells)</span></div>
+            </div>
+          </div>
+
+          <p class="hint phase-note">Open in <a href="units.html">Units</a> for the full attempt timeline and live preview.</p>
+        </section>
+      </div>
+
+      <div id="empty" class="empty" style="display:none">
+        <p class="empty-line">Nothing needs you. The foreman will call.</p>
+        <p>Escalations appear here when a unit fails verification three times.</p>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+  function toggleEmpty() {
+    var q = document.getElementById("queue");
+    var e = document.getElementById("empty");
+    var showEmpty = e.style.display === "none";
+    e.style.display = showEmpty ? "block" : "none";
+    q.style.display = showEmpty ? "none" : "block";
+  }
+</script>
+</body>
+</html>

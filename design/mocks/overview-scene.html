@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Foreman — Overview flow scene (mock)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="foreman.css">
+<style>
+  /* SUPERSEDED round-1 mock (dark industrial direction). foreman.css moved to
+     the light theme, so this page pins the original dark tokens locally to
+     stay viewable as a reference. */
+  :root {
+    --bg: #14161A; --card: #1C1F25; --surface: #1C1F25; --surface2: #24282F; --line: #32373F;
+    --ink: #E8EAED; --dim: #9AA0A8; --faint: #6E7681; --primary: #E85D04; --link: #E85D04;
+    --accent: #E85D04;
+    --ok: #3FB950; --ok-bg: rgba(63,185,80,.15); --ok-text: #3FB950;
+    --run: #58A6FF; --run-bg: rgba(88,166,255,.15); --run-text: #58A6FF;
+    --retry: #D29922; --retry-bg: rgba(210,153,34,.15); --retry-text: #D29922;
+    --fail: #F85149; --fail-bg: rgba(248,81,73,.15); --fail-text: #F85149;
+    --queued: #6E7681; --queued-bg: rgba(110,118,129,.2); --queued-text: #9AA0A8;
+    --r-card: 2px; --r-ctl: 2px; --shadow-card: none;
+    --font-ui: "Archivo", system-ui, sans-serif;
+  }
+  body { font-weight: 500; }
+
+  .scene-wrap { background: var(--surface); border: 1px solid var(--line); border-radius: 2px; padding: 16px; }
+  #scene { width: 100%; height: auto; display: block; }
+
+  /* prism faces — depth from brightness, hairline bg-colored seams */
+  .prism polygon { stroke: var(--bg); stroke-width: 1; }
+  .prism { color: var(--surface2); }
+  .f-top   { fill: currentColor; }
+  .f-right { fill: currentColor; filter: brightness(0.78); }
+  .f-left  { fill: currentColor; filter: brightness(0.58); }
+
+  .flat { fill: var(--surface2); stroke: var(--line); stroke-width: 1; }
+  .lit .f-top { stroke: var(--accent); stroke-width: 1.5; }
+  .dock-plate.flat { stroke: var(--fail); }
+
+  .scene-label {
+    font-family: var(--font-ui); font-weight: 600; font-size: 11px;
+    letter-spacing: 0.16em; text-transform: uppercase; fill: var(--dim);
+    text-anchor: middle;
+  }
+  .feed-line { stroke: var(--line); stroke-width: 1; fill: none; }
+  .retry-path { stroke: var(--retry); stroke-width: 1.5; stroke-dasharray: 5 5; fill: none; opacity: 0.9; }
+  .esc-path { stroke: var(--fail); stroke-width: 1.5; stroke-dasharray: 5 5; fill: none; opacity: 0.9; }
+
+  .token { cursor: pointer; }
+  .tk-run    { color: var(--run); }
+  .tk-ok     { color: var(--ok); }
+  .tk-retry  { color: var(--retry); }
+  .tk-fail   { color: var(--fail); }
+  .tk-queued { color: var(--queued); }
+  .token polygon { stroke: var(--bg); stroke-width: 0.75; }
+
+  .gate-lamp { r: 5; }
+  .dimmed #stations, .dimmed #paths { opacity: 0.55; }
+
+  .caption {
+    margin-top: 16px; text-align: center;
+    font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+    font-size: 13px; color: var(--dim);
+  }
+  .caption strong { color: var(--ink); font-weight: 500; }
+
+  /* mock-only controls */
+  .mock-controls {
+    margin-top: 24px; padding: 16px;
+    border: 1px dashed var(--line); border-radius: 2px;
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  }
+  .mock-controls .lbl {
+    font-family: var(--font-mono); font-size: 10px; color: var(--queued);
+    letter-spacing: 0.12em; margin-right: 8px;
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="logo"><span class="logo-mark"></span><span class="logo-word">Foreman</span></div>
+    <nav class="nav" aria-label="Main">
+      <a class="nav-item active" href="overview-scene.html" aria-current="page">Overview</a>
+      <a class="nav-item" href="seam.html">Seam</a>
+      <a class="nav-item" href="units.html">Units</a>
+      <a class="nav-item" href="log.html">Log</a>
+      <a class="nav-item" href="review.html">Review <span class="nav-badge">1</span></a>
+      <a class="nav-item" href="summary.html">Summary</a>
+    </nav>
+    <div class="sidebar-sep"></div>
+    <div class="active-label">Active</div>
+    <a class="campaign-chip" href="#">
+      <span class="lamp st-run pulse"></span>
+      <span>demo-repo</span>
+      <span class="chip-frac mono">9/15</span>
+    </a>
+    <p class="mock-note">mock · flow scene, 5 states<br>other mocks: <a href="index.html">index</a></p>
+  </aside>
+
+  <main class="content">
+    <header class="topstrip">
+      <div class="ts-row">
+        <span class="campaign-name mono">mf/campaign-3f9a2c1e</span>
+        <span class="state-chip"><span class="lamp st-run pulse"></span>RUNNING</span>
+        <span class="ts-frac mono">9/15 accepted</span>
+      </div>
+      <div class="progress"><div class="progress-fill" style="width:60%"></div></div>
+    </header>
+
+    <div class="page" style="max-width:1160px">
+      <div class="scene-wrap">
+        <svg id="scene" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Migration pipeline: plan, worktree lanes, verification gate, accepted platform, pull request">
+          <g id="paths"></g>
+          <g id="stations"></g>
+          <g id="tokens"></g>
+          <g id="gate-near"></g>
+          <g id="sky"></g>
+          <g id="fx"></g>
+          <g id="labels"></g>
+        </svg>
+        <p id="caption" class="caption"></p>
+      </div>
+
+      <div class="mock-controls">
+        <span class="lbl">MOCK CONTROLS — not part of the UI</span>
+        <button class="btn btn-ghost btn-sm state-btn on" data-state="idle">idle</button>
+        <button class="btn btn-ghost btn-sm state-btn" data-state="running">running</button>
+        <button class="btn btn-ghost btn-sm state-btn" data-state="retry">retry looping</button>
+        <button class="btn btn-ghost btn-sm state-btn" data-state="escalated">escalation docked</button>
+        <button class="btn btn-ghost btn-sm state-btn" data-state="complete">complete</button>
+        <button class="btn btn-primary btn-sm" id="play" style="margin-left:auto">▶ play gate-fail → retry</button>
+      </div>
+      <p class="hint" style="margin-top:8px">In the app, tokens move on <span class="mono">unit_status</span> events and clicking a token opens the same unit drawer as Units (see <a href="units.html">units.html</a>). Real build uses GSAP; this mock uses CSS transitions.</p>
+    </div>
+  </main>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var SVG = "http://www.w3.org/2000/svg";
+  var scene = document.getElementById("scene");
+  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* flattened isometric projection */
+  var C = 0.866, S = 0.29;
+  function P(x, y, z) { return [(x - y) * C, (x + y) * S - (z || 0)]; }
+  function pts(list) { return list.map(function (p) { return p[0].toFixed(1) + "," + p[1].toFixed(1); }).join(" "); }
+
+  function el(name, attrs, parent) {
+    var n = document.createElementNS(SVG, name);
+    for (var k in attrs) n.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(n);
+    return n;
+  }
+
+  /* iso box: base at (x,y) elevation z0, size w×d, height h */
+  function prism(parent, x, y, z0, w, d, h, cls) {
+    var t = z0 + h;
+    var g = el("g", { "class": "prism" + (cls ? " " + cls : "") }, parent);
+    el("polygon", { "class": "f-left",  points: pts([P(x, y + d, t), P(x + w, y + d, t), P(x + w, y + d, z0), P(x, y + d, z0)]) }, g);
+    el("polygon", { "class": "f-right", points: pts([P(x + w, y, t), P(x + w, y + d, t), P(x + w, y + d, z0), P(x + w, y, z0)]) }, g);
+    el("polygon", { "class": "f-top",   points: pts([P(x, y, t), P(x + w, y, t), P(x + w, y + d, t), P(x, y + d, t)]) }, g);
+    return g;
+  }
+  function flat(parent, x, y, w, d, cls) {
+    return el("polygon", { "class": "flat" + (cls ? " " + cls : ""), points: pts([P(x, y, 2), P(x + w, y, 2), P(x + w, y + d, 2), P(x, y + d, 2)]) }, parent);
+  }
+  function label(parent, x, y, z, text) {
+    var p = P(x, y, z);
+    var t = el("text", { "class": "scene-label", x: p[0], y: p[1] }, parent);
+    t.textContent = text;
+    return t;
+  }
+  function pathThrough(parent, world, cls) {
+    var proj = world.map(function (w) { return P(w[0], w[1], w[2]); });
+    var d = "M" + proj[0][0].toFixed(1) + " " + proj[0][1].toFixed(1);
+    for (var i = 1; i < proj.length; i++) {
+      var prev = proj[i - 1], cur = proj[i];
+      d += " Q" + ((prev[0] + cur[0]) / 2).toFixed(1) + " " + (Math.min(prev[1], cur[1]) - 6).toFixed(1) +
+           " " + cur[0].toFixed(1) + " " + cur[1].toFixed(1);
+    }
+    return el("path", { "class": cls, d: d }, parent);
+  }
+
+  var gPaths = document.getElementById("paths");
+  var gStations = document.getElementById("stations");
+  var gTokens = document.getElementById("tokens");
+  var gGateNear = document.getElementById("gate-near");
+  var gSky = document.getElementById("sky");
+  var gFx = document.getElementById("fx");
+  var gLabels = document.getElementById("labels");
+
+  /* ---------- static scene ---------- */
+
+  var LANES = [60, 200, 340];           // lane y-tops, depth 56
+  var LANE_X0 = 180, LANE_X1 = 560;
+
+  // plan station
+  prism(gStations, 0, 200, 0, 120, 120, 36);
+  // feed lines: plan → lane entries
+  LANES.forEach(function (ly) {
+    var a = P(120, 260, 20), b = P(LANE_X0, ly + 28, 4);
+    el("path", { "class": "feed-line", d: "M" + a[0] + " " + a[1] + " L" + b[0] + " " + b[1] }, gPaths);
+  });
+  // worktree lanes
+  LANES.forEach(function (ly) { flat(gPaths, LANE_X0, ly, LANE_X1 - LANE_X0, 56, "lane"); });
+
+  // gate: far pillar + beam (near pillar drawn above tokens)
+  prism(gStations, 600, 20, 0, 36, 36, 80);
+  prism(gStations, 600, 20, 80, 36, 436, 12);
+  var gateLampPos = P(618, 238, 104);
+  var gateLamp = el("circle", { "class": "gate-lamp", cx: gateLampPos[0], cy: gateLampPos[1], fill: "#58A6FF" }, gStations);
+  prism(gGateNear, 600, 420, 0, 36, 36, 80);
+
+  // accepted platform + PR station
+  prism(gStations, 700, 160, 0, 190, 180, 10);
+  var prStation = prism(gStations, 940, 180, 0, 110, 110, 44);
+
+  // escalation dock
+  flat(gPaths, 580, 470, 140, 90, "dock-plate");
+  pathThrough(gPaths, [[636, 456, 2], [640, 470, 2], [648, 500, 2]], "esc-path");
+
+  // retry loop (elevated, sky layer)
+  var RETRY_WAYPOINTS = [[590, 214, 8], [540, 90, 55], [400, -10, 70], [240, 0, 55], [180, 130, 25], [200, 214, 8]];
+  pathThrough(gSky, RETRY_WAYPOINTS, "retry-path");
+
+  // labels
+  label(gLabels, 60, 260, 52, "Plan");
+  label(gLabels, 370, 30, 26, "Worktrees");
+  label(gLabels, 618, 238, 128, "Gate");
+  label(gLabels, 795, 250, 40, "Accepted");
+  label(gLabels, 995, 235, 62, "PR");
+  label(gLabels, 330, -30, 78, "Retry loop");
+  label(gLabels, 650, 515, -22, "Escalation dock");
+
+  /* ---------- tokens ---------- */
+
+  function token(status, x, y, z, parent) {
+    var g = el("g", { "class": "token tk-" + status, tabindex: "0", role: "button",
+                      "aria-label": "unit token (" + status + ") — opens unit drawer" }, parent || gTokens);
+    // 22×22×16 cube at local origin
+    var w = 22, d = 22, h = 16;
+    el("polygon", { "class": "f-left",  points: pts([P(0, d, h), P(w, d, h), P(w, d, 0), P(0, d, 0)]) }, g);
+    el("polygon", { "class": "f-right", points: pts([P(w, 0, h), P(w, d, h), P(w, d, 0), P(w, 0, 0)]) }, g);
+    el("polygon", { "class": "f-top",   points: pts([P(0, 0, h), P(w, 0, h), P(w, d, h), P(0, d, h)]) }, g);
+    moveTo(g, x, y, z);
+    g.addEventListener("click", function () { window.location.href = "units.html"; });
+    return g;
+  }
+  function moveTo(g, x, y, z) {
+    var p = P(x, y, z || 4);
+    g.setAttribute("transform", "translate(" + p[0].toFixed(1) + " " + p[1].toFixed(1) + ")");
+  }
+  function setStatus(g, status) {
+    g.setAttribute("class", "token tk-" + status);
+  }
+  function stack(count) {
+    for (var i = 0; i < count; i++) {
+      var col = i % 5, row = Math.floor(i / 5);
+      token("ok", 714 + col * 34, 176 + row * 52, 12);
+    }
+  }
+  function clearTokens() { gTokens.innerHTML = ""; gFx.innerHTML = ""; }
+
+  /* ---------- states ---------- */
+
+  var caption = document.getElementById("caption");
+  var STATES = {
+    idle: {
+      dim: true, lamp: "#6E7681", pr: false,
+      caption: "Foreman splits a migration into per-file units, runs each in an isolated worktree, and only ships what passes the gate.",
+      build: function () {}
+    },
+    running: {
+      lamp: "#58A6FF", pr: false,
+      caption: "<strong>9/15</strong> accepted · 2 units in worktrees · gate verifying",
+      build: function () {
+        token("run", 300, LANES[0] + 17);
+        token("run", 440, LANES[1] + 17);
+        token("queued", 200, LANES[2] + 17);
+        stack(9);
+      }
+    },
+    retry: {
+      lamp: "#D29922", pr: false,
+      caption: "<strong>U-08</strong> failed the gate — round 2 dispatched with the failure log attached",
+      build: function () {
+        token("run", 320, LANES[0] + 17);
+        token("queued", 200, LANES[2] + 17);
+        var w = RETRY_WAYPOINTS[2];
+        token("retry", w[0], w[1], w[2] + 4, gFx);
+        stack(9);
+      }
+    },
+    escalated: {
+      lamp: "#F85149", pr: false,
+      caption: "<strong>U-07</strong> exhausted 3 rounds — parked at the escalation dock for review",
+      build: function () {
+        token("run", 360, LANES[1] + 17);
+        token("fail", 630, 500, 8);
+        stack(9);
+      }
+    },
+    complete: {
+      lamp: "#3FB950", pr: true,
+      caption: "<strong>14/15</strong> units migrated and verified autonomously · <strong>1</strong> escalated · <strong>47</strong> min",
+      build: function () {
+        stack(14);
+        token("fail", 630, 500, 8);
+      }
+    }
+  };
+
+  function setState(name) {
+    var st = STATES[name];
+    clearTokens();
+    st.build();
+    gateLamp.setAttribute("fill", st.lamp);
+    prStation.setAttribute("class", "prism" + (st.pr ? " lit" : ""));
+    scene.setAttribute("class", st.dim ? "dimmed" : "");
+    caption.innerHTML = st.caption;
+    document.querySelectorAll(".state-btn").forEach(function (b) {
+      b.classList.toggle("on", b.dataset.state === name);
+    });
+  }
+
+  document.querySelectorAll(".state-btn").forEach(function (b) {
+    b.addEventListener("click", function () { setState(b.dataset.state); });
+  });
+
+  /* ---------- gate-fail → retry transition ---------- */
+
+  function glide(g, x, y, z, ms) {
+    return new Promise(function (resolve) {
+      if (reduced) { moveTo(g, x, y, z); resolve(); return; }
+      g.style.transition = "transform " + ms + "ms linear";
+      requestAnimationFrame(function () {
+        moveTo(g, x, y, z);
+        setTimeout(resolve, ms + 20);
+      });
+    });
+  }
+  function pause(ms) {
+    return new Promise(function (r) { setTimeout(r, reduced ? 0 : ms); });
+  }
+
+  var playing = false;
+  document.getElementById("play").addEventListener("click", function () {
+    if (playing) return;
+    playing = true;
+    setState("running");
+    var laneY = LANES[1] + 17;
+    var t = token("run", 260, laneY, 4, gFx);
+    caption.innerHTML = "<strong>U-08</strong> heading to the gate…";
+    glide(t, 585, laneY, 4, 1100)
+      .then(function () { setStatus(t, "fail"); gateLamp.setAttribute("fill", "#F85149");
+        caption.innerHTML = "<strong>U-08</strong> failed verification — 4/6 tests"; return pause(650); })
+      .then(function () { setStatus(t, "retry"); gateLamp.setAttribute("fill", "#D29922");
+        caption.innerHTML = "<strong>U-08</strong> re-dispatched — round 2, failure log attached";
+        var seq = Promise.resolve();
+        RETRY_WAYPOINTS.forEach(function (w) {
+          seq = seq.then(function () { return glide(t, w[0], w[1] === 214 ? laneY : w[1], w[2] + 4, 340); });
+        });
+        return seq; })
+      .then(function () { setStatus(t, "run"); gateLamp.setAttribute("fill", "#58A6FF");
+        caption.innerHTML = "<strong>U-08</strong> back in a worktree — round 2 running";
+        return glide(t, 300, laneY, 4, 700); })
+      .then(function () { playing = false; });
+  });
+
+  /* fit viewBox to drawn content */
+  setState("running");           // densest state for measuring
+  var bb = scene.getBBox();
+  scene.setAttribute("viewBox",
+    (bb.x - 24).toFixed(0) + " " + (bb.y - 24).toFixed(0) + " " +
+    (bb.width + 48).toFixed(0) + " " + (bb.height + 48).toFixed(0));
+  setState("idle");
+})();
+</script>
+</body>
+</html>
