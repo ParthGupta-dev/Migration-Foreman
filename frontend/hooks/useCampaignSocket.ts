@@ -22,6 +22,10 @@ interface UseCampaignSocketResult {
   usingPolling: boolean;
   reasoningLog: ReasoningLine[];
   escalations: Record<string, string>;
+  // Non-review-queue terminal failures (blocked / generation_failed /
+  // system_error) as they stream in — keyed by unitId, live view of what
+  // EscalationPanel deliberately excludes. See BlockedUnitsPanel.
+  blockedUnits: Record<string, { status: string; failureLog: string }>;
   error: string | null;
 }
 
@@ -47,6 +51,9 @@ export function useCampaignSocket(campaignId: string): UseCampaignSocketResult {
   const [usingPolling, setUsingPolling] = useState(false);
   const [reasoningLog, setReasoningLog] = useState<ReasoningLine[]>([]);
   const [escalations, setEscalations] = useState<Record<string, string>>({});
+  const [blockedUnits, setBlockedUnits] = useState<
+    Record<string, { status: string; failureLog: string }>
+  >({});
   const [error, setError] = useState<string | null>(null);
 
   const pollHandle = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -146,6 +153,15 @@ export function useCampaignSocket(campaignId: string): UseCampaignSocketResult {
             [parsed.data.unitId]: parsed.data.failureLog,
           }));
           break;
+        case "unit_blocked":
+          setBlockedUnits((prev) => ({
+            ...prev,
+            [parsed.data.unitId]: {
+              status: parsed.data.status,
+              failureLog: parsed.data.failureLog,
+            },
+          }));
+          break;
         case "campaign_completed":
           setCampaign((prev) => (prev ? { ...prev, status: "completed" } : prev));
           break;
@@ -174,5 +190,5 @@ export function useCampaignSocket(campaignId: string): UseCampaignSocketResult {
     };
   }, [campaignId]);
 
-  return { campaign, connected, usingPolling, reasoningLog, escalations, error };
+  return { campaign, connected, usingPolling, reasoningLog, escalations, blockedUnits, error };
 }

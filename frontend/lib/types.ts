@@ -1,5 +1,5 @@
 // Mirrors the backend contracts (PROJECT.md section 7 plus the flagged
-// additions in backend/main.py: GET /repo/{id}/graph, POST /repo/{id}/plan,
+// additions in backend/main.py: GET /repo/{id}/graph, POST /repo/{id}/discover,
 // and the optional seam overrides for repos without .migration-foreman.json).
 
 export type RepoStatus = "pulling" | "ready" | "failed";
@@ -59,14 +59,28 @@ export interface SeamRequest {
   testCommand?: string;
 }
 
-// --- AI Planning Stage: POST /repo/{id}/plan ---
-
 export type PlanRisk = "low" | "medium" | "high";
 
-export interface Plan {
-  repoId: string;
-  intent: string;
-  migrationName: string;
+// --- AI Seam Discovery: POST /repo/{id}/discover ---
+
+export interface RepoSummary {
+  fileCount: number;
+  sourceFileCount: number;
+  languages: Record<string, number>;
+  topDirectories: string[];
+  graphNodes: number;
+  graphEdges: number;
+  mostDependedOnFiles: string[];
+}
+
+export interface DiscoveredSeam {
+  // Discovery-local id ("seam-0"); a real seam row is only created when the
+  // human approves it via POST /repo/{id}/seam.
+  seamId: string;
+  title: string;
+  description: string;
+  executionOrder: number;
+  dependsOn: string[];
   beforePattern: string;
   afterPattern: string;
   scopeGlobs: string[];
@@ -76,11 +90,34 @@ export interface Plan {
   breakingChanges: boolean;
   confidence: number;
   reasoning: string;
-  // Grounding telemetry, computed against the actual clone:
   groundedFiles: string[];
-  matchedOccurrences: number;
-  unsupportedFiles: string[];
+  estimatedFiles: number;
+  occurrences: number;
   repairedScope: boolean;
+}
+
+export interface DroppedSeam {
+  title: string;
+  reason: string;
+}
+
+export interface Discovery {
+  repoId: string;
+  objective: string;
+  repoSummary: RepoSummary;
+  seams: DiscoveredSeam[];
+  droppedSeams: DroppedSeam[];
+  seamCount: number;
+  totalEstimatedFiles: number;
+  overallRisk: PlanRisk;
+  estimatedMinutes: number;
+}
+
+// Client-side queue of approved-but-not-yet-executed seams (sessionStorage):
+// seams execute one campaign at a time, in the approved execution order.
+export interface SeamQueue {
+  repoId: string;
+  seams: { seamId: string; title: string }[];
 }
 
 export interface Seam {
@@ -100,13 +137,23 @@ export interface CampaignCreated {
   unitCount: number;
 }
 
+// Terminal states beyond "passed"/"escalated" (backend/verification/gate.py):
+// blocked = LLM/provider infra failure on every attempt (429, timeout, empty
+//   response, provider down) -- never reached a real verification.
+// generation_failed = the model responded but never produced usable
+//   migration content.
+// system_error = an unexpected internal/environment failure.
+// Only "escalated" belongs in the human Review queue (EscalationPanel).
 export type UnitStatus =
   | "pending"
   | "running"
   | "passed"
   | "failed"
   | "retrying"
-  | "escalated";
+  | "escalated"
+  | "blocked"
+  | "generation_failed"
+  | "system_error";
 
 export interface Unit {
   unitId: string;
@@ -121,6 +168,9 @@ export interface Campaign {
   campaignId: string;
   seamId: string;
   status: CampaignStatus;
+  // The seam's verification command — shown live so an inferred command that
+  // guessed wrong is visible immediately, not three retries deep.
+  testCommand: string;
   units: Unit[];
 }
 
@@ -136,11 +186,63 @@ export interface UnitPreview {
   testLog: string | null;
 }
 
+// Default publishing path: POST /campaign/{id}/apply — no GitHub involved.
+export interface ApplyResult {
+  campaignId: string;
+  localPath: string;
+  baseBranch: string;
+  campaignBranch: string;
+  changedFiles: string[];
+  diffSummary: string;
+  alreadyApplied: boolean;
+  gitCommands: string[];
+  acceptedUnits: number;
+  escalatedUnits: number;
+}
+
 export interface FinalizeResult {
   campaignId: string;
   prUrl: string;
   acceptedUnits: number;
   escalatedUnits: number;
+}
+
+export interface GithubStatus {
+  connected: boolean;
+  // True only when this browser has a real OAuth session — false when
+  // `connected` is true merely because the backend has a GITHUB_TOKEN env
+  // fallback configured. Repo listing/picking requires a real session.
+  oauthConnected?: boolean;
+  // GitHub login when connected via the OAuth web flow; null otherwise.
+  username: string | null;
+  // Whether the backend has an OAuth App configured — false means the UI
+  // offers the manual-token field instead of the "Connect GitHub" redirect.
+  oauthAvailable: boolean;
+  avatar?: string | null;
+  repositoryCount?: number | null;
+  expiresAt?: string | null;
+}
+
+export interface GithubRepository {
+  owner: string;
+  name: string;
+  fullName: string;
+  defaultBranch: string;
+  private: boolean;
+  permissions: Record<string, boolean>;
+}
+
+export interface GithubRepositoriesResponse {
+  repositories: GithubRepository[];
+}
+
+export interface GithubBranch {
+  name: string;
+  protected: boolean;
+}
+
+export interface GithubBranchesResponse {
+  branches: GithubBranch[];
 }
 
 export interface HealthResponse {
@@ -178,6 +280,15 @@ export interface UnitEscalatedEvent {
   failureLog: string;
 }
 
+// Terminal failures that are NOT engineering-judgement calls (blocked /
+// generation_failed / system_error) — deliberately a separate event from
+// unit_escalated so the human Review queue never has to filter these out.
+export interface UnitBlockedEvent {
+  unitId: string;
+  status: string;
+  failureLog: string;
+}
+
 export interface CampaignCompletedEvent {
   campaignId: string;
 }
@@ -191,5 +302,6 @@ export type CampaignWsEvent =
   | { event: "unit_status"; data: UnitStatusEvent }
   | { event: "unit_reasoning"; data: UnitReasoningEvent }
   | { event: "unit_escalated"; data: UnitEscalatedEvent }
+  | { event: "unit_blocked"; data: UnitBlockedEvent }
   | { event: "campaign_completed"; data: CampaignCompletedEvent }
   | { event: "campaign_failed"; data: CampaignFailedEvent };

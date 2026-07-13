@@ -7,10 +7,12 @@ settles the campaign status when all units resolve.
 
 import asyncio
 import logging
+import time
 from pathlib import Path
 
 import db
 import config
+from discovery import profiler
 from execution import worktree
 from verification import gate
 from ws import manager
@@ -58,12 +60,41 @@ async def run_campaign(campaign_id: str, seam: dict, repo_path: Path) -> None:
         "UPDATE campaigns SET status = 'completed' WHERE campaign_id = $1", campaign_id
     )
     logger.info(
-        "Campaign %s completed: %d passed, %d escalated",
+        "Campaign %s completed: %d passed, %d escalated, %d blocked, "
+        "%d generation_failed, %d system_error",
         campaign_id,
         results.count("passed"),
         results.count("escalated"),
+        results.count("blocked"),
+        results.count("generation_failed"),
+        results.count("system_error"),
     )
     await manager.broadcast(campaign_id, "campaign_completed", {"campaignId": campaign_id})
+
+    # Optional post-campaign cache (discovery/profiler.py): a snapshot of the
+    # project profile plus this campaign's outcome, written to
+    # .migration-foreman/ in the clone. Purely a cache -- if it's deleted,
+    # the next ingestion just re-infers everything from scratch. A failure
+    # here must never affect the campaign result already reported above.
+    try:
+        profile = await asyncio.to_thread(profiler.build_profile, repo_path)
+        await asyncio.to_thread(profiler.save_profile, repo_path, profile)
+        await asyncio.to_thread(
+            profiler.record_campaign_history, repo_path, campaign_id,
+            {
+                "campaignId": campaign_id,
+                "seam": seam,
+                "unitCount": len(units),
+                "passed": results.count("passed"),
+                "escalated": results.count("escalated"),
+                "blocked": results.count("blocked"),
+                "generationFailed": results.count("generation_failed"),
+                "systemError": results.count("system_error"),
+                "completedAt": time.time(),
+            },
+        )
+    except Exception as exc:
+        logger.warning("Campaign %s: optional metadata cache write failed: %s", campaign_id, exc)
 
 
 async def _fail_campaign(campaign_id: str, reason: str) -> None:

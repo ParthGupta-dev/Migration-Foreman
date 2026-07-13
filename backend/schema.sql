@@ -30,7 +30,14 @@ CREATE TABLE IF NOT EXISTS units (
   unit_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   campaign_id  UUID NOT NULL REFERENCES campaigns(campaign_id) ON DELETE CASCADE,
   scope_glob   TEXT NOT NULL,
-  status       TEXT NOT NULL CHECK (status IN ('pending', 'running', 'passed', 'failed', 'retrying', 'escalated')) DEFAULT 'pending',
+  -- Terminal states beyond passed/escalated (verification/gate.py):
+  -- blocked = LLM/provider infra failure on every attempt (429, timeout,
+  --   empty response, provider down) -- never reached a real verification.
+  -- generation_failed = the model responded but never produced usable
+  --   migration content.
+  -- system_error = an unexpected internal/environment failure. None of
+  -- these three belong in the human Review queue -- only "escalated" does.
+  status       TEXT NOT NULL CHECK (status IN ('pending', 'running', 'passed', 'failed', 'retrying', 'escalated', 'blocked', 'generation_failed', 'system_error')) DEFAULT 'pending',
   attempt      INTEGER NOT NULL DEFAULT 0,
   diff         TEXT,
   failure_log  TEXT,
@@ -38,8 +45,10 @@ CREATE TABLE IF NOT EXISTS units (
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Idempotent upgrade for databases created before test_log existed.
+-- Idempotent upgrades for databases created before these existed.
 ALTER TABLE units ADD COLUMN IF NOT EXISTS test_log TEXT;
+ALTER TABLE units DROP CONSTRAINT IF EXISTS units_status_check;
+ALTER TABLE units ADD CONSTRAINT units_status_check CHECK (status IN ('pending', 'running', 'passed', 'failed', 'retrying', 'escalated', 'blocked', 'generation_failed', 'system_error'));
 
 CREATE TABLE IF NOT EXISTS unit_events (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -53,3 +62,23 @@ CREATE TABLE IF NOT EXISTS unit_events (
 CREATE INDEX IF NOT EXISTS idx_units_campaign_id ON units(campaign_id);
 CREATE INDEX IF NOT EXISTS idx_unit_events_unit_id ON unit_events(unit_id);
 CREATE INDEX IF NOT EXISTS idx_seams_repo_id ON seams(repo_id);
+
+-- GitHub OAuth sessions (auth/session.py). session_id is the opaque value
+-- carried in the mf_session HttpOnly cookie; access/refresh tokens are
+-- encrypted application-side (auth/encryption.py) before landing here, so a
+-- database dump alone never yields a usable GitHub credential.
+CREATE TABLE IF NOT EXISTS github_sessions (
+  session_id              TEXT PRIMARY KEY,
+  github_user_id          BIGINT,
+  username                TEXT,
+  display_name            TEXT,
+  avatar_url              TEXT,
+  access_token_encrypted  BYTEA NOT NULL,
+  refresh_token_encrypted BYTEA,
+  token_expires_at        TIMESTAMPTZ,
+  expires_at              TIMESTAMPTZ NOT NULL,
+  created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_seen_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_github_sessions_expires_at ON github_sessions(expires_at);

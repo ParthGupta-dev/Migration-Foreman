@@ -3,12 +3,21 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ApiError, api } from "@/lib/api";
-import type { Candidate, GraphResponse, ManualSeam, Plan, Repo, Seam } from "@/lib/types";
+import type {
+  Discovery,
+  DiscoveredSeam,
+  GraphResponse,
+  ManualSeam,
+  Repo,
+  Seam,
+  SeamQueue,
+} from "@/lib/types";
+import { clearSeamQueue, writeSeamQueue } from "@/lib/seamQueue";
 import { matchesAnyGlob } from "@/utils/matchGlob";
 import DependencyGraph from "@/components/DependencyGraph";
-import CandidateList from "@/components/CandidateList";
+import GithubRepoConnect from "@/components/GithubRepoConnect";
 import ManualSeamForm from "@/components/ManualSeamForm";
-import PlanIntentForm from "@/components/PlanIntentForm";
+import SeamDiscoveryPanel from "@/components/SeamDiscoveryPanel";
 import ModeToggle, { type SeamMode } from "@/components/ModeToggle";
 
 const DEMO_REPO_PATHS = [
@@ -22,66 +31,40 @@ export default function RepoInputPage() {
 
   const [step, setStep] = useState<Step>("input");
   const [repoUrl, setRepoUrl] = useState("");
-  const [mode, setMode] = useState<SeamMode>("plan");
+  const [mode, setMode] = useState<SeamMode>("discover");
   const [error, setError] = useState<string | null>(null);
 
   const [repo, setRepo] = useState<Repo | null>(null);
-  const [candidates, setCandidates] = useState<Candidate[]>([]);
-  const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
   const [graph, setGraph] = useState<GraphResponse | null>(null);
   const [seam, setSeam] = useState<Seam | null>(null);
   const [creatingSeam, setCreatingSeam] = useState(false);
-  const [plan, setPlan] = useState<Plan | null>(null);
-  const [planning, setPlanning] = useState(false);
+  const [discovery, setDiscovery] = useState<Discovery | null>(null);
+  const [discovering, setDiscovering] = useState(false);
 
   const resetSeam = () => {
     setSeam(null);
-    setSelectedCandidateId(null);
-    setPlan(null);
+    setDiscovery(null);
   };
 
-  async function handleIngest(url: string) {
+  async function handleIngest(url: string, branch?: string) {
     setError(null);
     setStep("ingesting");
     try {
-      const created = await api.createRepo(url);
+      const created = await api.createRepo(url, branch);
       if (created.status !== "ready") {
         throw new Error(`Repo ingestion ended in status "${created.status}"`);
       }
       setRepo(created);
 
-      const [candidatesRes, graphRes] = await Promise.allSettled([
-        api.getCandidates(created.repoId),
-        api.getGraph(created.repoId),
-      ]);
-      if (candidatesRes.status === "fulfilled") {
-        setCandidates(candidatesRes.value.candidates);
-      }
-      if (graphRes.status === "fulfilled") {
-        setGraph(graphRes.value);
+      try {
+        setGraph(await api.getGraph(created.repoId));
+      } catch {
+        setGraph(null);
       }
       setStep("review");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
       setStep("input");
-    }
-  }
-
-  async function submitCandidateSeam(candidateId: string) {
-    if (!repo) return;
-    setCreatingSeam(true);
-    setError(null);
-    try {
-      const created = await api.createSeam(repo.repoId, {
-        candidateId,
-        manualSeam: null,
-      });
-      setSeam(created);
-      setSelectedCandidateId(candidateId);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
-    } finally {
-      setCreatingSeam(false);
     }
   }
 
@@ -102,29 +85,63 @@ export default function RepoInputPage() {
     }
   }
 
-  async function generatePlan(intent: string) {
+  // Both AI modes run the exact same planning pipeline (POST /repo/{id}/
+  // discover). The only behavioural difference is the amount of interaction
+  // on the result: "discover" offers full per-seam approve/edit/reject,
+  // "autonomous" presents the discovered seams for a single confirm-and-
+  // execute click. Neither executes without human confirmation.
+  async function runDiscovery(objective: string) {
     if (!repo) return;
-    setPlanning(true);
+    setDiscovering(true);
     setError(null);
-    setPlan(null);
+    setDiscovery(null);
     setSeam(null);
     try {
-      setPlan(await api.createPlan(repo.repoId, intent));
+      setDiscovery(await api.discoverSeams(repo.repoId, objective));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
     } finally {
-      setPlanning(false);
+      setDiscovering(false);
     }
   }
 
-  async function submitPlanSeam(confirmed: Plan, testCommand: string) {
-    await submitManualSeam({
-      scopeGlobs: confirmed.scopeGlobs,
-      beforePattern: confirmed.beforePattern,
-      afterPattern: confirmed.afterPattern,
-      invariants: confirmed.invariants,
-      testCommand,
-    });
+  // The mandatory human checkpoint has been passed: convert every approved
+  // discovered seam into a real Seam row (execution order preserved), queue
+  // all but the first, and start the first campaign.
+  async function approveDiscoveredSeams(approved: DiscoveredSeam[]) {
+    if (!repo || approved.length === 0) return;
+    setStep("launching");
+    setError(null);
+    try {
+      const created: SeamQueue["seams"] = [];
+      for (const discovered of approved) {
+        const seamRow = await api.createSeam(repo.repoId, {
+          candidateId: null,
+          manualSeam: {
+            scopeGlobs: discovered.scopeGlobs,
+            beforePattern: discovered.beforePattern,
+            afterPattern: discovered.afterPattern,
+            invariants: discovered.invariants,
+            testCommand: discovered.testCommand ?? "",
+          },
+        });
+        created.push({ seamId: seamRow.seamId, title: discovered.title });
+      }
+
+      const [first, ...rest] = created;
+      writeSeamQueue({ repoId: repo.repoId, seams: rest });
+
+      const campaign = await api.createCampaign(first.seamId);
+      router.push(`/campaign/${campaign.campaignId}?repoId=${repo.repoId}`);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+      setStep("review");
+    }
+  }
+
+  function cancelDiscovery() {
+    setDiscovery(null);
+    setError(null);
   }
 
   async function confirmAndLaunch() {
@@ -132,6 +149,7 @@ export default function RepoInputPage() {
     setStep("launching");
     setError(null);
     try {
+      clearSeamQueue();
       const campaign = await api.createCampaign(seam.seamId);
       router.push(`/campaign/${campaign.campaignId}?repoId=${repo.repoId}`);
     } catch (err) {
@@ -180,6 +198,13 @@ export default function RepoInputPage() {
             </button>
           ))}
         </div>
+        <GithubRepoConnect
+          disabled={step === "ingesting"}
+          onSelectRepo={(url, branch) => {
+            setRepoUrl(url);
+            handleIngest(url, branch);
+          }}
+        />
         {error && <p className="text-sm text-red-400">{error}</p>}
       </section>
 
@@ -200,28 +225,24 @@ export default function RepoInputPage() {
 
           <section className="space-y-3">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-              3. Seam definition
+              {mode === "guided" ? "3. Seam definition" : "3. AI seam discovery"}
             </h2>
-            {mode === "plan" ? (
-              <PlanIntentForm
-                plan={plan}
-                planning={planning}
-                creatingSeam={creatingSeam}
-                onGenerate={generatePlan}
-                onConfirm={submitPlanSeam}
-              />
-            ) : mode === "autonomous" ? (
-              <CandidateList
-                candidates={candidates}
-                selectedId={selectedCandidateId}
-                onSelect={submitCandidateSeam}
-              />
-            ) : (
+            {mode === "guided" ? (
               <ManualSeamForm onSubmit={submitManualSeam} submitting={creatingSeam} />
+            ) : (
+              <SeamDiscoveryPanel
+                discovery={discovery}
+                discovering={discovering}
+                launching={step === "launching"}
+                autonomous={mode === "autonomous"}
+                onDiscover={runDiscovery}
+                onApprove={approveDiscoveredSeams}
+                onCancel={cancelDiscovery}
+              />
             )}
           </section>
 
-          {seam && (
+          {seam && mode !== "discover" && (
             <section className="space-y-3">
               <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
                 4. Seam review

@@ -1,5 +1,15 @@
-import type { Unit } from "@/lib/types";
+import type { Unit, UnitStatus } from "@/lib/types";
 import StatusBadge from "./StatusBadge";
+
+// Any terminal status has a diff/test log worth inspecting, not just the
+// original passed/escalated pair.
+const TERMINAL_STATUSES: UnitStatus[] = [
+  "passed",
+  "escalated",
+  "blocked",
+  "generation_failed",
+  "system_error",
+];
 
 export type UnitView = { unitId: string; view: "diff" | "preview" } | null;
 
@@ -35,7 +45,7 @@ export default function UnitStatusTable({ units, selected, onSelect }: UnitStatu
         </thead>
         <tbody>
           {units.map((unit) => {
-            const resolved = unit.status === "passed" || unit.status === "escalated";
+            const resolved = TERMINAL_STATUSES.includes(unit.status);
             return (
               <tr key={unit.unitId} className="border-t border-slate-800">
                 <td className="px-3 py-2 font-mono text-xs text-slate-300">
