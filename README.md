@@ -92,7 +92,7 @@ The CLI uses the same discovery pipeline as the UI: it prints the discovered sea
 
 The demo repo is a small Python project where a deprecated `legacy_format` helper must be replaced by `format_text` across modules that use it in different ways — some trivially, some in ways that break tests and exercise the retry/escalation path.
 
-**1. Ingest.** Open http://localhost:3000, click the demo repo preset, paste any Git URL, or click **Connect GitHub** and pick one of your own repositories from the dropdown (private repos included — the connected session's token is used to clone). The backend clones the repo, builds the import dependency graph, and ranks migration candidates.
+**1. Ingest.** Open http://localhost:3000, click the demo repo preset, paste any Git URL, or click **Connect GitHub** and pick one of your own repositories from the dropdown (private repos included — the connected session's token is used to clone). The backend clones the repo, builds the import dependency graph, ranks migration candidates, and bootstraps a **repository profile** — languages, frameworks, package manager, build system, test framework, source roots, entry points, CI/Docker config — inferred entirely from what's on disk (`backend/discovery/profiler.py`). No `.migration-foreman` file of any kind is required for any of this: a first-time repository with zero prior Migration Foreman state works identically to one with campaign history. Only after a campaign completes does the backend optionally cache that profile plus a campaign-history entry into `.migration-foreman/` inside the clone — purely a speed/history cache; delete it and the next run just re-infers everything. See `GET /repo/{id}/profile`.
 
 **2. State the objective in plain English.** The default **AI Discovery** mode shows an objective box. Type:
 
@@ -167,6 +167,7 @@ Backend at http://localhost:8000 (interactive docs at `/docs`):
 | `POST /repo` | Clone + analyze a repository |
 | `GET /repo/{id}/candidates` | Ranked migration candidates |
 | `GET /repo/{id}/graph` | Dependency graph for the frontend views |
+| `GET /repo/{id}/profile` | Zero-config repository profile (languages, frameworks, package manager, build system, test framework, structure, entry points, CI/Docker config) — inferred fresh or loaded from an optional `.migration-foreman/` cache |
 | `POST /repo/{id}/discover` | **AI Seam Discovery** — the one planning pipeline (AI Discovery + Autonomous + CLI): objective in, repo analysis + grounded candidate seams out (read-only, advisory — confirmation happens before anything is created) |
 | `POST /repo/{id}/seam` | Create a seam (from a confirmed discovered seam, a candidate, or manually) |
 | `POST /campaign` | Start a migration campaign |

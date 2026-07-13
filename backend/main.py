@@ -32,6 +32,7 @@ from auth import oauth as github_oauth_flow
 from auth import session as github_session
 from discovery import blacklist
 from discovery import candidates as discovery
+from discovery import profiler
 from errors import ApiError
 from execution import engine, splitter, worktree
 from planning import seam_discovery
@@ -154,6 +155,17 @@ async def create_repo(body: models.RepoIn, request: Request) -> models.RepoOut:
         await asyncio.to_thread(
             discovery.compute_candidates, repo_id, dest, extra_blacklist
         )
+        # Bootstrap the project profile now, before seam discovery ever runs.
+        # No Migration Foreman file is required for this: metadata is only
+        # detected (a prior .migration-foreman/ from an earlier successful
+        # campaign against this same clone) as an optional cache hit; absent
+        # that, the profile is inferred entirely from what's on disk.
+        metadata = await asyncio.to_thread(profiler.detect_metadata, dest)
+        profile, from_cache = await asyncio.to_thread(profiler.get_or_build_profile, repo_id, dest)
+        logger.info(
+            "Repo %s profile %s (metadata found: %s)",
+            repo_id, "loaded from cache" if from_cache else "inferred fresh", metadata,
+        )
     except Exception as exc:
         status = "failed"
         logger.error("Repo %s ingestion failed: %s", repo_id, exc)
@@ -187,6 +199,28 @@ async def get_candidates(repo_id: str) -> models.CandidatesOut:
             for cand in cands
         ],
     )
+
+
+@app.get("/repo/{repo_id}/profile", response_model=models.RepoProfileOut)
+async def get_repo_profile(repo_id: str) -> models.RepoProfileOut:
+    """FLAGGED contract addition — the zero-config bootstrap profile that
+    lets discovery/planning operate on a first-time repository with no
+    Migration Foreman file of any kind. Regenerated on demand if the
+    in-memory cache and any on-disk .migration-foreman/ cache are both
+    absent (e.g. after a backend restart on a repo with no prior campaign)."""
+    row = await _get_ready_repo(repo_id)
+    repo_id = str(row["repo_id"])
+    repo_path = _repo_path(repo_id)
+    profile, from_cache = await asyncio.to_thread(
+        profiler.get_or_build_profile, repo_id, repo_path
+    )
+    return models.RepoProfileOut(repoId=repo_id, fromCache=from_cache, **{
+        key: profile.get(key) for key in (
+            "languages", "frameworks", "packageManager", "buildSystem",
+            "testFramework", "sourceRoots", "importantDirectories",
+            "entryPoints", "dependencyManifests", "ciConfig", "dockerConfig",
+        )
+    })
 
 
 @app.get("/repo/{repo_id}/graph", response_model=models.GraphOut)
