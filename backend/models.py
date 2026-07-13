@@ -5,6 +5,9 @@ from pydantic import BaseModel
 
 class RepoIn(BaseModel):
     repoUrl: str
+    # Optional: checkout this branch instead of the repo's default branch.
+    # Only meaningful for a fresh clone (POST /repo) -- ignored otherwise.
+    branch: str | None = None
 
 
 class RepoOut(BaseModel):
@@ -121,6 +124,10 @@ class CampaignCreatedOut(BaseModel):
 class UnitOut(BaseModel):
     unitId: str
     scopeGlob: str
+    # pending | running | retrying | failed (interim, mid-attempt) |
+    # passed | escalated | blocked | generation_failed | system_error
+    # (terminal — see verification/gate.py for what distinguishes the last
+    # four: only "escalated" belongs in the human Review queue).
     status: str
     attempt: int
     diff: str | None
@@ -216,6 +223,15 @@ class GithubRepositoryOut(BaseModel):
 
 class GithubRepositoriesOut(BaseModel):
     repositories: list[GithubRepositoryOut]
+
+
+class GithubBranchOut(BaseModel):
+    name: str
+    protected: bool
+
+
+class GithubBranchesOut(BaseModel):
+    branches: list[GithubBranchOut]
 
 
 class GithubPullRequestIn(BaseModel):

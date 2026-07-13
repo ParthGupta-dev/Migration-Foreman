@@ -56,6 +56,16 @@ async def get_repository(session_id: str | None, owner: str, repo: str) -> dict:
         raise GithubServiceError(str(exc)) from exc
 
 
+async def list_branches(session_id: str | None, owner: str, repo: str) -> list[dict]:
+    client = await get_client(session_id)
+    if client is None:
+        raise GithubServiceError("Not authenticated: connect GitHub first")
+    try:
+        return await asyncio.to_thread(repositories.list_branches, client, owner, repo)
+    except GithubApiError as exc:
+        raise GithubServiceError(str(exc)) from exc
+
+
 def _parse_github_url(repo_url: str) -> tuple[str, str]:
     match = _GITHUB_URL.search(repo_url)
     if not match:

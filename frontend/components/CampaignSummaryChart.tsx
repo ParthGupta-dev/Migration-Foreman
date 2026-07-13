@@ -13,7 +13,13 @@ import {
 import type { Unit, UnitStatus } from "@/lib/types";
 import { formatUnitStatusLabel, unitStatusNodeColor } from "@/utils/formatUnitStatus";
 
-const TALLY_STATUSES: UnitStatus[] = ["passed", "failed", "escalated"];
+const TALLY_STATUSES: UnitStatus[] = [
+  "passed",
+  "escalated",
+  "blocked",
+  "generation_failed",
+  "system_error",
+];
 
 export default function CampaignSummaryChart({ units }: { units: Unit[] }) {
   const data = TALLY_STATUSES.map((status) => ({

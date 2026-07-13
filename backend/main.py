@@ -140,7 +140,10 @@ async def create_repo(body: models.RepoIn, request: Request) -> models.RepoOut:
     def clone() -> None:
         from git import Repo as GitRepo
 
-        GitRepo.clone_from(clone_url, dest)
+        if body.branch:
+            GitRepo.clone_from(clone_url, dest, branch=body.branch)
+        else:
+            GitRepo.clone_from(clone_url, dest)
 
     try:
         await asyncio.to_thread(clone)
@@ -714,6 +717,20 @@ async def github_repository(owner: str, repo: str, request: Request) -> models.G
     except github_service.GithubServiceError as exc:
         raise ApiError(401, "github_not_authenticated", str(exc))
     return models.GithubRepositoryOut(**data)
+
+
+@app.get("/github/repository/{owner}/{repo}/branches", response_model=models.GithubBranchesOut)
+async def github_repository_branches(
+    owner: str, repo: str, request: Request
+) -> models.GithubBranchesOut:
+    session_id = request.cookies.get(SESSION_COOKIE)
+    try:
+        branches = await github_service.list_branches(session_id, owner, repo)
+    except github_service.GithubServiceError as exc:
+        raise ApiError(401, "github_not_authenticated", str(exc))
+    return models.GithubBranchesOut(
+        branches=[models.GithubBranchOut(**b) for b in branches]
+    )
 
 
 @app.post("/github/pull-request", response_model=models.GithubPullRequestOut)

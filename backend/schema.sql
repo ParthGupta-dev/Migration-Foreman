@@ -30,7 +30,14 @@ CREATE TABLE IF NOT EXISTS units (
   unit_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   campaign_id  UUID NOT NULL REFERENCES campaigns(campaign_id) ON DELETE CASCADE,
   scope_glob   TEXT NOT NULL,
-  status       TEXT NOT NULL CHECK (status IN ('pending', 'running', 'passed', 'failed', 'retrying', 'escalated')) DEFAULT 'pending',
+  -- Terminal states beyond passed/escalated (verification/gate.py):
+  -- blocked = LLM/provider infra failure on every attempt (429, timeout,
+  --   empty response, provider down) -- never reached a real verification.
+  -- generation_failed = the model responded but never produced usable
+  --   migration content.
+  -- system_error = an unexpected internal/environment failure. None of
+  -- these three belong in the human Review queue -- only "escalated" does.
+  status       TEXT NOT NULL CHECK (status IN ('pending', 'running', 'passed', 'failed', 'retrying', 'escalated', 'blocked', 'generation_failed', 'system_error')) DEFAULT 'pending',
   attempt      INTEGER NOT NULL DEFAULT 0,
   diff         TEXT,
   failure_log  TEXT,
@@ -38,8 +45,10 @@ CREATE TABLE IF NOT EXISTS units (
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Idempotent upgrade for databases created before test_log existed.
+-- Idempotent upgrades for databases created before these existed.
 ALTER TABLE units ADD COLUMN IF NOT EXISTS test_log TEXT;
+ALTER TABLE units DROP CONSTRAINT IF EXISTS units_status_check;
+ALTER TABLE units ADD CONSTRAINT units_status_check CHECK (status IN ('pending', 'running', 'passed', 'failed', 'retrying', 'escalated', 'blocked', 'generation_failed', 'system_error'));
 
 CREATE TABLE IF NOT EXISTS unit_events (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -58,10 +58,14 @@ async def run_campaign(campaign_id: str, seam: dict, repo_path: Path) -> None:
         "UPDATE campaigns SET status = 'completed' WHERE campaign_id = $1", campaign_id
     )
     logger.info(
-        "Campaign %s completed: %d passed, %d escalated",
+        "Campaign %s completed: %d passed, %d escalated, %d blocked, "
+        "%d generation_failed, %d system_error",
         campaign_id,
         results.count("passed"),
         results.count("escalated"),
+        results.count("blocked"),
+        results.count("generation_failed"),
+        results.count("system_error"),
     )
     await manager.broadcast(campaign_id, "campaign_completed", {"campaignId": campaign_id})
 
