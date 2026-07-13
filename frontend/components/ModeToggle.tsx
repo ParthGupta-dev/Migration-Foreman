@@ -1,7 +1,7 @@
-export type SeamMode = "plan" | "guided" | "autonomous";
+export type SeamMode = "discover" | "guided" | "autonomous";
 
 const MODE_LABELS: Record<SeamMode, string> = {
-  plan: "AI Plan",
+  discover: "AI Discovery",
   guided: "Guided",
   autonomous: "Autonomous",
 };

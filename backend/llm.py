@@ -12,12 +12,15 @@ from the environment:
                           (e.g. LLM_PROVIDER=ollama with
                           LLM_BASE_URL=http://localhost:11434/v1)
 - LLM_PROVIDER unset   -> auto-detect: first of codex / groq / custom whose
-                          key is set wins
+                          key is set wins (so adding OPENAI_API_KEY later
+                          switches to codex without touching anything else)
 
 MOCK_CODEX=1 short-circuits in the callers before this module is reached.
 """
 
+import json
 import logging
+import re
 from dataclasses import dataclass
 
 import config
@@ -98,8 +101,14 @@ def describe() -> str:
         return "unconfigured"
 
 
-def complete(prompt: str) -> str:
-    """One-shot completion via whichever provider the env selects."""
+def complete(prompt: str, json_mode: bool = False) -> str:
+    """One-shot completion via whichever provider the env selects.
+
+    json_mode=True requests the provider's native structured-output mode
+    (`response_format: json_object` on chat completions, the text format on
+    the Responses API). Providers/models that reject the parameter fall back
+    to a plain completion — callers still get text either way.
+    """
     provider = active_provider()
     try:
         from openai import OpenAI
@@ -107,19 +116,92 @@ def complete(prompt: str) -> str:
         raise LlmError(f"openai package not installed: {exc}") from exc
 
     client = OpenAI(api_key=provider.api_key, base_url=provider.base_url)
-    try:
+
+    def invoke(use_json: bool) -> str:
         if provider.api == "responses":
-            response = client.responses.create(model=provider.model, input=prompt)
-            text = response.output_text
-        else:
-            response = client.chat.completions.create(
-                model=provider.model,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            text = response.choices[0].message.content
+            kwargs: dict = {"model": provider.model, "input": prompt}
+            if use_json:
+                kwargs["text"] = {"format": {"type": "json_object"}}
+            return client.responses.create(**kwargs).output_text
+        kwargs = {
+            "model": provider.model,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        if use_json:
+            kwargs["response_format"] = {"type": "json_object"}
+        return client.chat.completions.create(**kwargs).choices[0].message.content
+
+    try:
+        try:
+            text = invoke(json_mode)
+        except Exception as exc:
+            if not json_mode:
+                raise
+            # Not every model behind an OpenAI-compatible endpoint supports
+            # JSON mode; degrade to a plain completion rather than failing.
+            logger.debug("%s rejected JSON mode (%s); retrying without", provider.name, exc)
+            text = invoke(False)
     except Exception as exc:
         raise LlmError(f"{provider.name} invocation failed: {exc}") from exc
 
     if not text or not text.strip():
         raise LlmError(f"{provider.name} returned empty output")
     return text
+
+
+_FENCE_RE = re.compile(r"^```[\w+-]*\n(.*)\n```$", re.DOTALL)
+
+_JSON_RETRY_REMINDER = (
+    "\n\nIMPORTANT: Your previous reply was not valid JSON. Respond again with "
+    "ONLY a single valid JSON object — no markdown fences, no commentary, and "
+    "no text before or after the JSON."
+)
+
+
+def _extract_json(text: str):
+    """Parse model output into JSON, tolerating fences and surrounding prose.
+
+    Tries, in order: the whole (fence-stripped) text, then the first balanced
+    JSON object/array found anywhere in it. Raises ValueError if nothing parses.
+    """
+    cleaned = text.strip()
+    match = _FENCE_RE.match(cleaned)
+    if match:
+        cleaned = match.group(1).strip()
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        pass
+
+    decoder = json.JSONDecoder()
+    for index, char in enumerate(cleaned):
+        if char in "{[":
+            try:
+                value, _ = decoder.raw_decode(cleaned, index)
+                return value
+            except json.JSONDecodeError:
+                continue
+    raise ValueError("no parseable JSON object found in model output")
+
+
+def complete_json(prompt: str):
+    """Completion that must yield JSON, robust to sloppy model output.
+
+    Strategy: ask with the provider's JSON mode; parse leniently (fences and
+    surrounding prose tolerated); on a malformed reply retry once with an
+    explicit valid-JSON-only reminder. Raw output is logged at DEBUG so
+    malformed replies can be diagnosed. Raises LlmError only after every
+    recovery attempt fails.
+    """
+    last_error: Exception | None = None
+    current_prompt = prompt
+    for attempt in (1, 2):
+        text = complete(current_prompt, json_mode=True)
+        logger.debug("Raw model JSON output (attempt %d): %r", attempt, text)
+        try:
+            return _extract_json(text)
+        except ValueError as exc:
+            last_error = exc
+            logger.warning("Model returned malformed JSON (attempt %d): %s", attempt, exc)
+            current_prompt = prompt + _JSON_RETRY_REMINDER
+    raise LlmError(f"model did not return valid JSON after retry: {last_error}")

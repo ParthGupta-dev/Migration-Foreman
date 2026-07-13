@@ -2,7 +2,7 @@
 
 Any engineer, any repository, productive in minutes.
 
-Migration Foreman turns a plain-English migration goal — *"Upgrade requests to httpx"* — into a supervised, test-verified migration campaign. An AI planner converts the intent into a concrete migration spec and grounds it against the actual repository; execution then runs each file as an isolated unit in its own git worktree, verifies every change against the test suite, retries failures with the real failure log, escalates what it can't fix, and assembles the passing work into a pull request. The whole run streams live to the browser.
+Migration Foreman turns a high-level engineering objective — *"Modernize authentication"*, *"Upgrade requests to httpx"* — into a supervised, test-verified migration campaign. It is an AI migration **architect**, not just an executor: it analyzes the repository read-only, discovers candidate migration seams with risk, confidence, and reasoning attached, and presents them for **explicit human approval — nothing executes until an engineer approves the plan**. Approved seams then run through the execution engine: each file becomes an isolated unit in its own git worktree, every change is verified against the test suite, failures are retried with the real failure log, what can't be fixed is escalated, and the passing work is assembled into a pull request. The whole run streams live to the browser.
 
 It is LLM-provider-agnostic: Codex (OpenAI), Groq, or any OpenAI-compatible endpoint — chosen entirely by the env file, no code changes.
 
@@ -22,19 +22,30 @@ Architecture, contracts, and conventions: [docs/PROJECT.md](docs/PROJECT.md).
 Repository URL
       │
       ▼
-Repo ingestion + dependency graph & candidate discovery
+Repo ingestion ── clone + import dependency graph + candidate ranking
       │
       ▼
-AI Planning Stage ──── user intent: "Upgrade requests to httpx"
-      │                LLM proposes: migration name, before/after patterns,
-      │                scope, risk, breaking changes, confidence, reasoning
+Engineering objective ── "Modernize authentication" (plain English;
+      │                   no repo knowledge or seam-writing required)
       ▼
-Grounding & validation ── the plan is checked against the real clone:
-      │                   occurrences counted per file, impossible scopes
-      │                   repaired, unfounded plans rejected
+Repository analysis ── read-only: file census, language breakdown,
+      │                 dependency-graph stats, most-depended-on files
       ▼
-Plan review ── user sees the checklist (✓ occurrences ✓ scope ✓ confidence)
-      │         and approves; a seam is created automatically
+AI seam discovery ── the model decomposes the objective into candidate
+      │               seams, each with title, description, before/after
+      │               patterns, scope, risk, confidence, breaking changes,
+      │               dependencies, and reasoning
+      ▼
+Grounding & validation ── every seam is checked against the real clone:
+      │                    occurrences counted per file, impossible scopes
+      │                    repaired, unfounded seams dropped
+      ▼
+HUMAN APPROVAL ── the mandatory safety checkpoint: approve all, approve
+      │            selected, reject, or edit individual seams; change
+      │            nothing runs without explicit confirmation
+      ▼
+Seam creation ── each approved seam becomes a regular Seam record and
+      │           flows through the existing pipeline unchanged
       ▼
 Batch execution ── one unit per file, parallel isolated git worktrees
       │
@@ -45,11 +56,18 @@ Verification gate ── the seam's test command runs for every migrated unit
       ├── fail → retried with the real failure log (up to 3 attempts)
       └── still failing → escalated to the human review queue
       ▼
-PR assembly ── accepted units become one pull request;
-               escalated units are listed for human follow-up
+Completion ── publishing is a separate, optional concern:
+      ├── Apply locally (default) ── verified changes merged into the
+      │                              repo's default branch; no GitHub
+      │                              authentication required
+      └── Create pull request ────── connect GitHub and the campaign
+                                     branch becomes one PR, escalated
+                                     units listed for follow-up
 ```
 
-Planning is the default entry point, but not the only one: **Guided** mode lets you type the seam (patterns, scope, test command) by hand, and **Autonomous** mode picks from the ranked candidates that discovery generates from graph centrality × recent git activity. Repos can optionally carry a `.migration-foreman.json` to pre-configure their seam — it's an advanced override, never a prerequisite.
+**AI Discovery** is the default entry point, but not the only one: **Guided** mode lets you type the seam (patterns, scope, test command) by hand, and **Autonomous** mode runs the *exact same* discovery pipeline but auto-approves every discovered seam and continues straight to execution — the approval pause is the only difference between the two AI modes; there is a single planning implementation behind both. Repos can optionally carry a `.migration-foreman.json` to pre-configure their seam — it's an advanced override, never a prerequisite.
+
+When several seams are approved at once, they execute one campaign at a time in dependency-respecting order: the first campaign starts immediately, and each campaign-summary page offers **Start next seam campaign** until the approved queue is drained.
 
 ## Quickstart
 
@@ -74,27 +92,27 @@ The demo repo is a small Python project where a deprecated `legacy_format` helpe
 
 **1. Ingest.** Open http://localhost:3000, click the demo repo preset (or paste any Git URL). The backend clones the repo, builds the import dependency graph, and ranks migration candidates.
 
-**2. State the goal in plain English.** The default **AI Plan** mode shows an intent box. Type:
+**2. State the objective in plain English.** The default **AI Discovery** mode shows an objective box. Type:
 
 > Migrate legacy_format to format_text
 
-and click **Generate plan**.
+and click **Discover seams**. Nothing about the repository's structure needs to be known — discovery is the system's job.
 
-**3. The planner generates and grounds the plan.** The LLM proposes the migration spec; the backend then validates it against the actual clone before you ever see it — counting real occurrences, repairing scopes that miss the code, and rejecting plans whose pattern doesn't exist in the repo. The result card shows:
+**3. The AI analyzes the repo and discovers seams.** The backend first performs a read-only repository analysis (file census, language breakdown, dependency-graph stats, most-depended-on files), then the model decomposes the objective into candidate seams. Every seam is grounded against the actual clone before you see it — real occurrences counted per file, impossible scopes repaired, seams whose pattern doesn't exist in the repo dropped. The discovery screen shows the overall picture (seam count, total files affected, overall risk, estimated execution time) and one expandable card per seam:
 
 ```
-legacy_format -> format_text   [risk: medium] [breaking changes: yes]
-✓ Found 20 occurrence(s) across 6 file(s)
-✓ Confidence 0.60
-Reason: …call sites still on the old name would break once it is removed.
-        Pattern grounded in 6 file(s) with 20 occurrence(s).
+#1  legacy_format -> format_text   [medium] [7 file(s)] [confidence 0.60]
+    Transformation: legacy_format → format_text
+    Occurrences: 24 across 7 file(s) · Breaking changes: yes
+    Reasoning: …call sites still on the old name would break once it is
+               removed. Pattern grounded in 7 file(s) with 24 occurrence(s).
+    Verification: python -m pytest -q
+    + grounded file list, dependencies on other seams
 ```
 
-plus the grounded file list and an editable test command (inferred from the repo layout when the plan doesn't supply one).
+**4. Human approval — the mandatory checkpoint.** Each card has **✓ Approve**, **✏ Edit** (title, patterns, scope, test command), and **✕ Reject**. The bottom bar offers **Approve selected & execute**, **Approve all**, and **Cancel migration**. Seams are only created — and the first campaign only starts — when you approve; with several approved seams, the rest queue up and each campaign summary offers **Start next seam campaign**.
 
-**4. Review and approve.** Check the patterns, files, and risk; adjust the test command if needed; click **✓ Ready for execution — use this plan**. A seam is created automatically from the approved plan — no manual seam configuration.
-
-**5. Batch execution.** Confirm the seam and start the campaign. Each in-scope file becomes one unit; units run in parallel (bounded by `UNIT_PARALLELISM`), each in its own git worktree so attempts never contaminate each other. The campaign page streams unit status and the migration agent's per-file rationale live over WebSocket.
+**5. Batch execution.** Each in-scope file becomes one unit; units run in parallel (bounded by `UNIT_PARALLELISM`), each in its own git worktree so attempts never contaminate each other. The campaign page streams unit status and the migration agent's per-file rationale live over WebSocket.
 
 **6. Verification on every unit.** After each migrated file, the seam's test command runs in that unit's worktree. Passing units merge into the campaign branch.
 
@@ -102,7 +120,12 @@ plus the grounded file list and an editable test command (inferred from the repo
 
 **7. Retry and escalation.** A failing unit is retried with the actual test failure log fed back to the LLM (up to `MAX_ATTEMPTS`, default 3). Units that still fail are **escalated** — parked with their diff and failure log for human review, without blocking the rest of the campaign. In the demo, the files needing more than a rename escalate by design.
 
-**8. Pull request.** When the campaign completes, **Finalize** assembles all accepted units into a single PR on the campaign branch (requires a GitHub-hosted repo and `GITHUB_TOKEN`), with escalated units listed for follow-up. For non-GitHub repos, finalize returns `502 pr_creation_failed` and the summary view falls back to the aggregated diffs.
+**8. Publish — your choice.** When the campaign completes, the summary page shows a **Migration complete** screen (verification result, changed files, passed/escalated counts) with two publishing options:
+
+- **Apply locally (default, no GitHub needed).** One click merges the verified campaign branch into the repo's default branch in the clone, then shows the modified files, a diff summary, the local repository path, and copyable git commands (`git status` / `git log` / `git push`) to take it from there.
+- **Create pull request (optional).** Click **Connect GitHub** and paste a personal access token (kept for the browser session only, sent per request — OAuth is the intended long-term flow), or preconfigure `GITHUB_TOKEN` server-side. Then one click pushes the campaign branch and opens a PR with escalated units listed for follow-up. For non-GitHub repos this returns `502 pr_creation_failed` and the summary view falls back to the aggregated diffs.
+
+The whole migration workflow completes without any GitHub authentication; publishing to GitHub is strictly optional post-processing.
 
 ## LLM providers
 
@@ -111,7 +134,7 @@ Everything model-facing goes through one env-driven client (`backend/llm.py`). S
 | Setup in `.env` | Provider used |
 | --- | --- |
 | `OPENAI_API_KEY=…` | Codex via the OpenAI Responses API (`CODEX_MODEL`, default `gpt-5-codex`) |
-| `GROQ_API_KEY=…` | Groq chat completions (`GROQ_MODEL`, default `llama-3.3-70b-versatile`) |
+| `GROQ_API_KEY=…` | Groq chat completions (`GROQ_MODEL`, default `openai/gpt-oss-20b`) |
 | `LLM_PROVIDER=<name>` + `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` | Any OpenAI-compatible endpoint (e.g. `LLM_PROVIDER=ollama`, `LLM_BASE_URL=http://localhost:11434/v1`) |
 | `MOCK_CODEX=1` | Deterministic offline mock — full pipeline, zero keys |
 
@@ -126,11 +149,14 @@ Backend at http://localhost:8000 (interactive docs at `/docs`):
 | `POST /repo` | Clone + analyze a repository |
 | `GET /repo/{id}/candidates` | Ranked migration candidates |
 | `GET /repo/{id}/graph` | Dependency graph for the frontend views |
-| `POST /repo/{id}/plan` | **AI Planning Stage**: intent in, grounded migration spec out |
-| `POST /repo/{id}/seam` | Create a seam (from a plan, a candidate, or manually) |
+| `POST /repo/{id}/discover` | **AI Seam Discovery**: objective in, repo analysis + grounded candidate seams out (read-only, advisory — approval happens before anything is created) |
+| `POST /repo/{id}/plan` | AI Planning Stage (single-seam precursor to discovery): intent in, grounded migration spec out |
+| `POST /repo/{id}/seam` | Create a seam (from an approved discovered seam, a candidate, or manually) |
 | `POST /campaign` | Start a migration campaign |
 | `GET /campaign/{id}` | Campaign + unit status |
 | `GET /campaign/{id}/unit/{id}/preview` | Before/after file contents + full test output for the Live Preview view |
-| `POST /campaign/{id}/finalize` | Assemble the PR |
+| `POST /campaign/{id}/apply` | **Default publishing path**: merge the verified campaign branch into the local repo's default branch — no GitHub auth |
+| `POST /campaign/{id}/finalize` | Optional publishing path: push + open a GitHub PR (token from the UI or `GITHUB_TOKEN`) |
+| `GET /github/status` | Whether the backend has GitHub credentials configured |
 | `WS /ws/campaign/{id}` | Live unit status, reasoning, and escalation events |
 | `GET /health` | Service, database, and active LLM provider status |

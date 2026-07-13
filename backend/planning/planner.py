@@ -16,7 +16,6 @@ intents directly, so the planning stage runs offline like the rest of the
 pipeline.
 """
 
-import json
 import logging
 import re
 from pathlib import Path
@@ -25,7 +24,6 @@ import config
 import llm
 from discovery import parser
 from execution import splitter
-from execution.codex import _strip_fences
 
 logger = logging.getLogger("migration_foreman.planner")
 
@@ -96,16 +94,14 @@ def _generate(repo_path: Path, intent: str) -> dict:
 
     prompt = _PROMPT_TEMPLATE.format(intent=intent, tree=tree)
     try:
-        text = llm.complete(prompt)
+        # complete_json handles JSON mode, lenient extraction, and one
+        # valid-JSON-only retry before giving up (see llm.complete_json).
+        plan = llm.complete_json(prompt)
     except llm.LlmError as exc:
         raise PlanGenerationError(f"Planning invocation failed: {exc}") from exc
 
-    try:
-        plan = json.loads(_strip_fences(text))
-    except (json.JSONDecodeError, TypeError) as exc:
-        raise PlanGenerationError(f"Codex returned non-JSON plan: {exc}") from exc
     if not isinstance(plan, dict):
-        raise PlanGenerationError("Codex plan is not a JSON object")
+        raise PlanGenerationError("Model plan is not a JSON object")
     return plan
 
 

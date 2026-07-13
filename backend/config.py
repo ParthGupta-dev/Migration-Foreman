@@ -28,7 +28,7 @@ CODEX_MODEL: str = os.getenv("CODEX_MODEL", "gpt-5-codex")
 
 # Groq (OpenAI-compatible chat completions)
 GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_MODEL: str = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
 GROQ_BASE_URL: str = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
 
 # Any other OpenAI-compatible endpoint (LLM_PROVIDER set to a custom name)

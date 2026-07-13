@@ -42,13 +42,23 @@ def create_pr(
     campaign_branch: str,
     accepted: list[str],
     escalated: list[dict],
+    token: str | None = None,
 ) -> str:
-    """Push the campaign branch and open the aggregate PR. Returns the PR URL."""
-    if not config.GITHUB_TOKEN:
-        raise PrCreationError("GITHUB_TOKEN not set")
+    """Push the campaign branch and open the aggregate PR. Returns the PR URL.
+
+    `token` is a UI-supplied GitHub token (connect-GitHub flow); it takes
+    precedence over the GITHUB_TOKEN env var. PR creation is optional
+    post-processing — without any token, users apply changes locally instead
+    (pr/local_apply.py).
+    """
+    token = (token or "").strip() or config.GITHUB_TOKEN
+    if not token:
+        raise PrCreationError(
+            "No GitHub token: connect GitHub in the UI or set GITHUB_TOKEN"
+        )
     owner, repo = _parse_github(repo_url)
 
-    push_url = f"https://x-access-token:{config.GITHUB_TOKEN}@github.com/{owner}/{repo}.git"
+    push_url = f"https://x-access-token:{token}@github.com/{owner}/{repo}.git"
     push = run_git(["push", "--force", push_url, f"{campaign_branch}:{campaign_branch}"], cwd=repo_path)
     if not push.ok:
         raise PrCreationError(f"Failed to push campaign branch: {push.output[-500:]}")
@@ -76,7 +86,7 @@ def create_pr(
         data=payload,
         method="POST",
         headers={
-            "Authorization": f"Bearer {config.GITHUB_TOKEN}",
+            "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github+json",
             "Content-Type": "application/json",
             "User-Agent": "migration-foreman",

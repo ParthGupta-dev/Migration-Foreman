@@ -1,10 +1,13 @@
 import { BACKEND_BASE_URL } from "./config";
 import type {
   ApiErrorShape,
+  ApplyResult,
   Campaign,
   CampaignCreated,
   CandidatesResponse,
+  Discovery,
   FinalizeResult,
+  GithubStatus,
   GraphResponse,
   HealthResponse,
   Plan,
@@ -64,6 +67,9 @@ export const api = {
   createPlan: (repoId: string, intent: string) =>
     request<Plan>("POST", `/repo/${repoId}/plan`, { intent }),
 
+  discoverSeams: (repoId: string, objective: string) =>
+    request<Discovery>("POST", `/repo/${repoId}/discover`, { objective }),
+
   createSeam: (repoId: string, body: SeamRequest) =>
     request<Seam>("POST", `/repo/${repoId}/seam`, body),
 
@@ -76,6 +82,15 @@ export const api = {
   getUnitPreview: (campaignId: string, unitId: string) =>
     request<UnitPreview>("GET", `/campaign/${campaignId}/unit/${unitId}/preview`),
 
-  finalizeCampaign: (campaignId: string) =>
-    request<FinalizeResult>("POST", `/campaign/${campaignId}/finalize`),
+  applyCampaignLocally: (campaignId: string) =>
+    request<ApplyResult>("POST", `/campaign/${campaignId}/apply`),
+
+  finalizeCampaign: (campaignId: string, githubToken?: string) =>
+    request<FinalizeResult>(
+      "POST",
+      `/campaign/${campaignId}/finalize`,
+      githubToken ? { githubToken } : undefined
+    ),
+
+  githubStatus: () => request<GithubStatus>("GET", "/github/status"),
 };

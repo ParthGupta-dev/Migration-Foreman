@@ -51,6 +51,59 @@ class PlanOut(BaseModel):
     repairedScope: bool
 
 
+class DiscoverIn(BaseModel):
+    objective: str
+
+
+class RepoSummaryOut(BaseModel):
+    fileCount: int
+    sourceFileCount: int
+    languages: dict[str, int]
+    topDirectories: list[str]
+    graphNodes: int
+    graphEdges: int
+    mostDependedOnFiles: list[str]
+
+
+class DiscoveredSeamOut(BaseModel):
+    seamId: str  # discovery-local id ("seam-0"); a real seam row is only
+    # created when the human approves it via POST /repo/{id}/seam
+    title: str
+    description: str
+    executionOrder: int
+    dependsOn: list[str]  # discovery-local seamIds that must run first
+    beforePattern: str
+    afterPattern: str
+    scopeGlobs: list[str]
+    invariants: list[str]
+    testCommand: str | None
+    risk: str  # low | medium | high
+    breakingChanges: bool
+    confidence: float
+    reasoning: str
+    groundedFiles: list[str]
+    estimatedFiles: int
+    occurrences: int
+    repairedScope: bool
+
+
+class DroppedSeamOut(BaseModel):
+    title: str
+    reason: str
+
+
+class DiscoveryOut(BaseModel):
+    repoId: str
+    objective: str
+    repoSummary: RepoSummaryOut
+    seams: list[DiscoveredSeamOut]
+    droppedSeams: list[DroppedSeamOut]
+    seamCount: int
+    totalEstimatedFiles: int
+    overallRisk: str
+    estimatedMinutes: int
+
+
 class ManualSeamIn(BaseModel):
     scopeGlobs: list[str]
     beforePattern: str
@@ -115,11 +168,38 @@ class UnitPreviewOut(BaseModel):
     testLog: str | None
 
 
+class ApplyOut(BaseModel):
+    """Result of applying a completed campaign to the local repository."""
+
+    campaignId: str
+    localPath: str
+    baseBranch: str
+    campaignBranch: str
+    changedFiles: list[str]
+    diffSummary: str
+    alreadyApplied: bool
+    gitCommands: list[str]
+    acceptedUnits: int
+    escalatedUnits: int
+
+
+class FinalizeIn(BaseModel):
+    # Optional UI-supplied GitHub token (connect-GitHub flow); takes
+    # precedence over the GITHUB_TOKEN env var.
+    githubToken: str | None = None
+
+
 class FinalizeOut(BaseModel):
     campaignId: str
     prUrl: str
     acceptedUnits: int
     escalatedUnits: int
+
+
+class GithubStatusOut(BaseModel):
+    # True when the backend has a GITHUB_TOKEN configured; the UI can also
+    # "connect" by passing a token per finalize request without this.
+    connected: bool
 
 
 class GraphNodeOut(BaseModel):

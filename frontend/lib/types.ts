@@ -83,6 +83,65 @@ export interface Plan {
   repairedScope: boolean;
 }
 
+// --- AI Seam Discovery: POST /repo/{id}/discover ---
+
+export interface RepoSummary {
+  fileCount: number;
+  sourceFileCount: number;
+  languages: Record<string, number>;
+  topDirectories: string[];
+  graphNodes: number;
+  graphEdges: number;
+  mostDependedOnFiles: string[];
+}
+
+export interface DiscoveredSeam {
+  // Discovery-local id ("seam-0"); a real seam row is only created when the
+  // human approves it via POST /repo/{id}/seam.
+  seamId: string;
+  title: string;
+  description: string;
+  executionOrder: number;
+  dependsOn: string[];
+  beforePattern: string;
+  afterPattern: string;
+  scopeGlobs: string[];
+  invariants: string[];
+  testCommand: string | null;
+  risk: PlanRisk;
+  breakingChanges: boolean;
+  confidence: number;
+  reasoning: string;
+  groundedFiles: string[];
+  estimatedFiles: number;
+  occurrences: number;
+  repairedScope: boolean;
+}
+
+export interface DroppedSeam {
+  title: string;
+  reason: string;
+}
+
+export interface Discovery {
+  repoId: string;
+  objective: string;
+  repoSummary: RepoSummary;
+  seams: DiscoveredSeam[];
+  droppedSeams: DroppedSeam[];
+  seamCount: number;
+  totalEstimatedFiles: number;
+  overallRisk: PlanRisk;
+  estimatedMinutes: number;
+}
+
+// Client-side queue of approved-but-not-yet-executed seams (sessionStorage):
+// seams execute one campaign at a time, in the approved execution order.
+export interface SeamQueue {
+  repoId: string;
+  seams: { seamId: string; title: string }[];
+}
+
 export interface Seam {
   seamId: string;
   scopeGlobs: string[];
@@ -136,11 +195,29 @@ export interface UnitPreview {
   testLog: string | null;
 }
 
+// Default publishing path: POST /campaign/{id}/apply — no GitHub involved.
+export interface ApplyResult {
+  campaignId: string;
+  localPath: string;
+  baseBranch: string;
+  campaignBranch: string;
+  changedFiles: string[];
+  diffSummary: string;
+  alreadyApplied: boolean;
+  gitCommands: string[];
+  acceptedUnits: number;
+  escalatedUnits: number;
+}
+
 export interface FinalizeResult {
   campaignId: string;
   prUrl: string;
   acceptedUnits: number;
   escalatedUnits: number;
+}
+
+export interface GithubStatus {
+  connected: boolean;
 }
 
 export interface HealthResponse {

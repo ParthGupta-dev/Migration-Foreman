@@ -1,39 +1,45 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { ApiError, api } from "@/lib/api";
-import type { Campaign, FinalizeResult } from "@/lib/types";
+import { readSeamQueue, writeSeamQueue } from "@/lib/seamQueue";
+import type { Campaign, SeamQueue } from "@/lib/types";
 import CampaignSummaryChart from "@/components/CampaignSummaryChart";
+import CompletionPanel from "@/components/CompletionPanel";
 import UnitStatusTable, { type UnitView } from "@/components/UnitStatusTable";
 import UnitPreviewPanel from "@/components/UnitPreviewPanel";
 import DiffView from "@/components/DiffView";
 
 export default function CampaignSummaryPage() {
   const params = useParams<{ campaignId: string }>();
+  const router = useRouter();
 
   const [campaign, setCampaign] = useState<Campaign | null>(null);
-  const [finalizeResult, setFinalizeResult] = useState<FinalizeResult | null>(null);
-  const [finalizing, setFinalizing] = useState(false);
-  const [finalizeError, setFinalizeError] = useState<string | null>(null);
   const [selectedView, setSelectedView] = useState<UnitView>(null);
+  const [seamQueue, setSeamQueue] = useState<SeamQueue | null>(null);
+  const [startingNext, setStartingNext] = useState(false);
+  const [nextError, setNextError] = useState<string | null>(null);
 
   useEffect(() => {
     api.getCampaign(params.campaignId).then(setCampaign).catch(() => setCampaign(null));
+    setSeamQueue(readSeamQueue());
   }, [params.campaignId]);
 
-  async function handleFinalize() {
-    setFinalizing(true);
-    setFinalizeError(null);
+  // Approved seams execute one campaign at a time: when this campaign is
+  // done, the next approved seam from the discovery queue can start.
+  async function handleStartNextSeam() {
+    if (!seamQueue || seamQueue.seams.length === 0) return;
+    setStartingNext(true);
+    setNextError(null);
+    const [next, ...rest] = seamQueue.seams;
     try {
-      const result = await api.finalizeCampaign(params.campaignId);
-      setFinalizeResult(result);
+      const created = await api.createCampaign(next.seamId);
+      writeSeamQueue({ ...seamQueue, seams: rest });
+      router.push(`/campaign/${created.campaignId}?repoId=${seamQueue.repoId}`);
     } catch (err) {
-      // PROJECT.md section 11 fallback: PR creation failure -> show the
-      // aggregated diffs directly in this view (already rendered below).
-      setFinalizeError(err instanceof ApiError ? err.message : String(err));
-    } finally {
-      setFinalizing(false);
+      setNextError(err instanceof ApiError ? err.message : String(err));
+      setStartingNext(false);
     }
   }
 
@@ -41,12 +47,30 @@ export default function CampaignSummaryPage() {
     return <p className="text-sm text-slate-500">Loading campaign summary…</p>;
   }
 
-  const acceptedOrEscalated = campaign.units.filter(
-    (unit) => unit.status === "passed" || unit.status === "escalated"
-  );
+  const passedUnits = campaign.units.filter((unit) => unit.status === "passed");
+  const escalatedUnits = campaign.units.filter((unit) => unit.status === "escalated");
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
+      {seamQueue && seamQueue.seams.length > 0 && (
+        <section className="rounded-lg border border-blue-900 bg-blue-950/40 p-4 space-y-2">
+          <p className="text-sm text-slate-200">
+            <span className="font-semibold">{seamQueue.seams.length}</span> approved
+            seam(s) still queued from discovery. Next:{" "}
+            <span className="font-medium">{seamQueue.seams[0].title}</span>
+          </p>
+          <button
+            type="button"
+            onClick={handleStartNextSeam}
+            disabled={startingNext}
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-40"
+          >
+            {startingNext ? "Starting…" : "Start next seam campaign"}
+          </button>
+          {nextError && <p className="text-sm text-red-400">{nextError}</p>}
+        </section>
+      )}
+
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
           Campaign summary — {params.campaignId.slice(0, 8)}
@@ -81,44 +105,21 @@ export default function CampaignSummaryPage() {
         </section>
       )}
 
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-          Pull request
-        </h2>
-        {finalizeResult ? (
-          <p className="text-sm">
-            <a
-              href={finalizeResult.prUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="text-blue-400 underline"
-            >
-              {finalizeResult.prUrl}
-            </a>{" "}
-            <span className="text-slate-500">
-              ({finalizeResult.acceptedUnits} accepted, {finalizeResult.escalatedUnits} escalated)
-            </span>
-          </p>
-        ) : (
-          <button
-            type="button"
-            onClick={handleFinalize}
-            disabled={finalizing || campaign.status !== "completed"}
-            className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-500 disabled:opacity-40"
-          >
-            {finalizing ? "Opening PR…" : "Finalize & open PR"}
-          </button>
-        )}
-        {finalizeError && (
-          <p className="text-sm text-red-400">
-            PR creation failed ({finalizeError}) — use View Diff / Live Preview on the
-            units above to inspect the changes instead.
-          </p>
-        )}
-        {acceptedOrEscalated.length === 0 && (
-          <p className="text-sm text-slate-500">No accepted or escalated units.</p>
-        )}
-      </section>
+      {campaign.status === "completed" ? (
+        <CompletionPanel
+          campaignId={params.campaignId}
+          passedUnits={passedUnits.length}
+          escalatedUnits={escalatedUnits.length}
+        />
+      ) : (
+        <p className="text-sm text-slate-500">
+          Campaign status is &quot;{campaign.status}&quot; — publishing options appear
+          once the campaign completes.
+        </p>
+      )}
+      {passedUnits.length + escalatedUnits.length === 0 && (
+        <p className="text-sm text-slate-500">No accepted or escalated units.</p>
+      )}
     </div>
   );
 }
