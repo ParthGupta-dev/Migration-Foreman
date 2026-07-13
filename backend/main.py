@@ -685,6 +685,7 @@ async def github_status(request: Request) -> models.GithubStatusOut:
             logger.warning("Could not fetch repository count for status: %s", exc)
     return models.GithubStatusOut(
         connected=bool(session or config.GITHUB_TOKEN),
+        oauthConnected=session is not None,
         username=session["username"] if session else None,
         oauthAvailable=github_oauth_flow.configured(),
         avatar=session["avatarUrl"] if session else None,

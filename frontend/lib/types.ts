@@ -199,6 +199,10 @@ export interface FinalizeResult {
 
 export interface GithubStatus {
   connected: boolean;
+  // True only when this browser has a real OAuth session — false when
+  // `connected` is true merely because the backend has a GITHUB_TOKEN env
+  // fallback configured. Repo listing/picking requires a real session.
+  oauthConnected?: boolean;
   // GitHub login when connected via the OAuth web flow; null otherwise.
   username: string | null;
   // Whether the backend has an OAuth App configured — false means the UI

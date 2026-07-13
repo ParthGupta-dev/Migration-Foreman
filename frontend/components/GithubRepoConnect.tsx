@@ -45,7 +45,10 @@ export default function GithubRepoConnect({ onSelectRepo, disabled }: GithubRepo
     }
   }, []);
 
-  const connected = status?.connected ?? false;
+  // Deliberately not status?.connected: that flag is also true when the
+  // backend merely has a GITHUB_TOKEN env fallback configured, which isn't
+  // "this browser is signed in" and can't be used to browse "your" repos.
+  const connected = status?.oauthConnected ?? false;
 
   useEffect(() => {
     if (!connected || repos !== null) return;

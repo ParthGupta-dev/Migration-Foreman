@@ -180,6 +180,10 @@ class GithubStatusOut(BaseModel):
     # a GITHUB_TOKEN configured; the UI can also "connect" by passing a token
     # per finalize request without either.
     connected: bool
+    # True only when THIS browser has a real OAuth session (not merely a
+    # GITHUB_TOKEN env fallback). Repo listing/picking requires this — an
+    # env token being set doesn't mean this session can browse "your" repos.
+    oauthConnected: bool = False
     # GitHub login of the OAuth-connected user (None for env-token/manual).
     username: str | None = None
     # Whether the "Connect GitHub" OAuth button can work at all (client
