@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Foreman — Plan (mock)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="foreman.css">
+<style>
+  .intent {
+    font-family: var(--font-mono); font-size: 17px; line-height: 1.7;
+    padding: 8px 0 4px;
+  }
+  .intent::before { content: "“"; color: var(--faint); }
+  .intent::after { content: "”"; color: var(--faint); }
+  .intent-meta { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 14px; color: var(--dim); font-size: 12px; }
+  .intent-meta .mono { color: var(--ink); }
+
+  .spec-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+  .spec-col h4 { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--dim); margin-bottom: 8px; }
+
+  .batch-row { display: flex; align-items: baseline; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); }
+  .batch-row:last-child { border-bottom: none; }
+  .batch-row .cat-dot { position: relative; top: 1px; }
+  .batch-name { font-weight: 600; font-size: 13px; min-width: 72px; }
+  .batch-files { flex: 1; font-family: var(--font-mono); font-size: 12px; color: var(--dim); }
+  .batch-n { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 12px; color: var(--dim); }
+
+  .inv-list { list-style: none; margin-top: 4px; }
+  .inv-list li { display: flex; gap: 10px; padding: 6px 0; font-size: 13px; }
+  .inv-list li::before { content: "▪"; color: var(--faint); }
+
+  .ground-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .ground { text-align: left; }
+  .ground .g-num { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .ground .g-lbl { color: var(--dim); font-size: 12px; margin-top: 2px; }
+
+  .graph-svg { width: 100%; height: auto; display: block; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
+  .warn { color: var(--retry-text); font-size: 12px; }
+  .readonly-note { display: inline-flex; align-items: center; gap: 8px; color: var(--dim); font-size: 12px; }
+</style>
+</head>
+<body>
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <symbol id="i-factory" viewBox="0 0 24 24"><path d="M2 20a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8l-7 5V8l-7 5V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M17 18h1"/><path d="M12 18h1"/><path d="M7 18h1"/></symbol>
+  <symbol id="i-scroll" viewBox="0 0 24 24"><path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/></symbol>
+  <symbol id="i-boxes" viewBox="0 0 24 24"><path d="M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z"/><path d="m7 16.5-4.74-2.85"/><path d="m7 16.5 5-3"/><path d="M7 16.5v5.17"/><path d="M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z"/><path d="m17 16.5-5-3"/><path d="m17 16.5 4.74-2.85"/><path d="M17 16.5v5.17"/><path d="M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z"/><path d="M12 8 7.26 5.15"/><path d="m12 8 4.74-2.85"/><path d="M12 13.5V8"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="i-term" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></symbol>
+  <symbol id="i-clip" viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+  <symbol id="i-panel-close" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m16 15-3-3 3-3"/></symbol>
+  <symbol id="i-panel-open" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m14 9 3 3-3 3"/></symbol>
+</svg>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="logo"><span class="logo-mark"></span><span class="logo-word">Foreman</span></div>
+    <nav class="nav" aria-label="Main">
+      <a class="nav-item" href="overview.html" title="Overview"><svg class="nav-ico"><use href="#i-factory"/></svg><span class="nav-txt">Overview</span></a>
+      <a class="nav-item active" href="plan.html" aria-current="page" title="Plan"><svg class="nav-ico"><use href="#i-scroll"/></svg><span class="nav-txt">Plan</span></a>
+      <a class="nav-item has-badge" href="batches.html" title="Batches"><svg class="nav-ico"><use href="#i-boxes"/></svg><span class="nav-txt">Batches</span><span class="nav-badge">1</span></a>
+      <a class="nav-item" href="chat.html" title="Chat"><svg class="nav-ico"><use href="#i-chat"/></svg><span class="nav-txt">Chat</span></a>
+      <a class="nav-item" href="log.html" title="Log"><svg class="nav-ico"><use href="#i-term"/></svg><span class="nav-txt">Log</span></a>
+      <a class="nav-item" href="summary.html" title="Summary"><svg class="nav-ico"><use href="#i-clip"/></svg><span class="nav-txt">Summary</span></a>
+    </nav>
+    <div class="sidebar-sep"></div>
+    <div class="active-label">Campaigns</div>
+    <div class="hist-list">
+      <a class="hist-item on" href="overview.html" title="legacy_format → format_text — running · 9/15">
+        <span class="lamp st-run pulse"></span>
+        <span class="hist-body"><span class="hist-name">legacy_format → format_text</span><span class="hist-meta">running · 9/15</span></span>
+      </a>
+      <a class="hist-item" href="#" title="requests → httpx — done · 12/12 · switches the dashboard to that campaign">
+        <span class="lamp st-ok"></span>
+        <span class="hist-body"><span class="hist-name">requests → httpx</span><span class="hist-meta">done · 12/12 · 3d</span></span>
+      </a>
+      <a class="hist-item" href="#" title="drop moment.js — failed · switches the dashboard to that campaign">
+        <span class="lamp st-fail"></span>
+        <span class="hist-body"><span class="hist-name">drop moment.js</span><span class="hist-meta">failed · 6d</span></span>
+      </a>
+      <a class="hist-new" href="landing.html" title="New campaign"><svg class="nav-ico"><use href="#i-plus"/></svg><span class="nav-txt">New campaign</span></a>
+    </div>
+    <button class="collapse-btn" onclick="mfToggleSidebar()" title="Toggle sidebar" aria-label="Toggle sidebar">
+      <svg class="nav-ico ico-collapse"><use href="#i-panel-close"/></svg>
+      <svg class="nav-ico ico-expand"><use href="#i-panel-open"/></svg>
+      <span class="nav-txt">Collapse</span>
+    </button>
+    <p class="mock-note">mock · approved plan record<br>other mocks: <a href="index.html">index</a></p>
+  </aside>
+
+  <main class="content">
+    <header class="topstrip">
+      <div class="ts-row">
+        <span class="campaign-name mono">mf/campaign-3f9a2c1e</span>
+        <span class="state-chip"><span class="lamp st-run pulse"></span>RUNNING</span>
+        <span class="ts-frac mono">9/15 accepted</span>
+      </div>
+      <div class="progress"><div class="progress-fill" style="width:60%"></div></div>
+    </header>
+
+    <div class="page">
+      <h1 class="page-title">Plan</h1>
+      <p class="page-sub">The approved migration plan — the contract this campaign runs against. Locked when the campaign started; the conversation that produced it continues in <a href="chat.html">Chat</a>.</p>
+
+      <section class="card">
+        <p class="intent">Migrate every call of legacy_format to format_text, keeping keyword arguments intact.</p>
+        <div class="intent-meta">
+          <span>mode <span class="mono">AI Plan</span></span>
+          <span>model <span class="mono">codex</span></span>
+          <span>planned <span class="mono">14:01:12</span></span>
+          <span>approved by you <span class="mono">14:02:05</span></span>
+          <a href="chat.html">view planning conversation →</a>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">Grounded spec</h2>
+        <dl class="kv">
+          <dt>Seam name</dt><dd>legacy_format → format_text</dd>
+          <dt>Before pattern</dt><dd>legacy_format(</dd>
+          <dt>After pattern</dt><dd>format_text(</dd>
+        </dl>
+        <div class="spec-grid">
+          <div class="spec-col">
+            <h4>Before</h4>
+            <div class="codeblock"><span class="ln"> def footer(self, total):</span><span class="ln del">-    return legacy_format(total, prefix="Total: ")</span><span class="ln"> </span><span class="ln del">-    line = legacy_format(item.name, width=32)</span></div>
+          </div>
+          <div class="spec-col">
+            <h4>After</h4>
+            <div class="codeblock"><span class="ln"> def footer(self, total):</span><span class="ln add">+    return format_text(total, prefix="Total: ")</span><span class="ln"> </span><span class="ln add">+    line = format_text(item.name, width=32)</span></div>
+          </div>
+        </div>
+        <p class="hint" style="margin-top:12px">Keyword arguments are preserved verbatim — the seam is a mechanical call-site swap; behavior is pinned by the test suite, not by the pattern.</p>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">Scope &amp; safety</h2>
+        <dl class="kv">
+          <dt>Scope</dt><dd>src/**/*.py · sdk/**/*.py</dd>
+          <dt>Matched</dt><dd>15 files · 41 call sites</dd>
+          <dt>Excluded</dt><dd>tests/** (verification target, never edited)</dd>
+        </dl>
+        <p class="warn" style="margin-top:14px">payments/ is blacklisted and excluded from scope — enforced server-side, not just in this plan.</p>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">Batches — one block per file, grouped by module</h2>
+        <div class="batch-row">
+          <span class="cat-dot" style="background:#3F8A82"></span><span class="batch-name">render</span>
+          <span class="batch-files">src/formatter.py · src/banner.py · src/labels.py · src/headers.py</span>
+          <span class="batch-n">4 files · 12 call sites</span>
+        </div>
+        <div class="batch-row">
+          <span class="cat-dot" style="background:#8A8B4E"></span><span class="batch-name">export</span>
+          <span class="batch-files">src/exporter.py · src/digest.py · src/manifest.py</span>
+          <span class="batch-n">3 files · 11 call sites</span>
+        </div>
+        <div class="batch-row">
+          <span class="cat-dot" style="background:#5A6BA0"></span><span class="batch-name">data</span>
+          <span class="batch-files">src/report.py · src/invoice.py · src/receipt.py · src/summary.py</span>
+          <span class="batch-n">4 files · 10 call sites</span>
+        </div>
+        <div class="batch-row">
+          <span class="cat-dot" style="background:#B0788F"></span><span class="batch-name">notify</span>
+          <span class="batch-files">src/notify.py · src/greeting.py</span>
+          <span class="batch-n">2 files · 4 call sites</span>
+        </div>
+        <div class="batch-row">
+          <span class="cat-dot" style="background:#5E96A8"></span><span class="batch-name">sdk</span>
+          <span class="batch-files">sdk/render.py · sdk/textutil.py</span>
+          <span class="batch-n">2 files · 4 call sites</span>
+        </div>
+        <p class="hint" style="margin-top:12px">Batch colors are the block colors in the Overview scene — a batch keeps its color through the whole run.</p>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">Verification</h2>
+        <dl class="kv">
+          <dt>Test command</dt><dd>python -m unittest discover -s tests</dd>
+          <dt>Retry policy</dt><dd>3 rounds max, failure log attached on retry, then escalate</dd>
+          <dt>Isolation</dt><dd>one git worktree per file — failures never touch the campaign branch</dd>
+        </dl>
+        <h4 style="font-size:11px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:var(--dim); margin:18px 0 2px">Invariants</h4>
+        <ul class="inv-list">
+          <li>Output strings stay byte-identical — the suite pins every rendered format.</li>
+          <li>Public function signatures unchanged; keyword arguments preserved verbatim.</li>
+          <li>No new imports outside the target module <span class="mono">format_text</span>.</li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">Grounding — the plan was verified against the real clone before you saw it</h2>
+        <div class="ground-row">
+          <div class="ground"><div class="g-num">41</div><div class="g-lbl">occurrences counted in the clone</div></div>
+          <div class="ground"><div class="g-num">15</div><div class="g-lbl">files matched by scope</div></div>
+          <div class="ground"><div class="g-num">2</div><div class="g-lbl">scopes repaired (globs widened to real paths)</div></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">Blast radius</h2>
+        <svg class="graph-svg" viewBox="0 0 1040 300" role="img" aria-label="Dependency graph: in-scope, blacklisted and unaffected modules">
+          <g stroke="#D6C9B5" stroke-width="1">
+            <line x1="200" y1="150" x2="380" y2="70"/>
+            <line x1="200" y1="150" x2="380" y2="150"/>
+            <line x1="200" y1="150" x2="380" y2="230"/>
+            <line x1="380" y1="70"  x2="560" y2="70"/>
+            <line x1="380" y1="150" x2="560" y2="150"/>
+            <line x1="380" y1="230" x2="560" y2="230"/>
+            <line x1="560" y1="70"  x2="740" y2="110"/>
+            <line x1="560" y1="150" x2="740" y2="110"/>
+            <line x1="560" y1="230" x2="740" y2="190"/>
+            <line x1="740" y1="110" x2="900" y2="150"/>
+            <line x1="740" y1="190" x2="900" y2="150"/>
+          </g>
+          <g font-family="IBM Plex Mono, monospace" font-size="11" text-anchor="middle">
+            <g><rect x="140" y="132" width="120" height="36" rx="6" fill="#FFFEFC" stroke="#3D362D"/><text x="200" y="154" fill="#3D362D">formatter.py</text></g>
+            <g><rect x="320" y="52"  width="120" height="36" rx="6" fill="#FFFEFC" stroke="#3D362D"/><text x="380" y="74"  fill="#3D362D">report.py</text></g>
+            <g><rect x="320" y="132" width="120" height="36" rx="6" fill="#FFFEFC" stroke="#3D362D"/><text x="380" y="154" fill="#3D362D">invoice.py</text></g>
+            <g><rect x="320" y="212" width="120" height="36" rx="6" fill="#FFFEFC" stroke="#3D362D"/><text x="380" y="234" fill="#3D362D">exporter.py</text></g>
+            <g><rect x="500" y="52"  width="120" height="36" rx="6" fill="#FFFEFC" stroke="#3D362D"/><text x="560" y="74"  fill="#3D362D">notify.py</text></g>
+            <g><rect x="500" y="132" width="120" height="36" rx="6" fill="#FFFEFC" stroke="#3D362D"/><text x="560" y="154" fill="#3D362D">digest.py</text></g>
+            <g><rect x="500" y="212" width="120" height="36" rx="6" fill="#FFFEFC" stroke="#B15D48" stroke-dasharray="4 3"/><text x="560" y="234" fill="#8A8072">payments/</text></g>
+            <g><rect x="680" y="92"  width="120" height="36" rx="6" fill="#FFFEFC" stroke="#3D362D"/><text x="740" y="114" fill="#3D362D">render.py</text></g>
+            <g><rect x="680" y="172" width="120" height="36" rx="6" fill="#FFFEFC" stroke="#D6C9B5"/><text x="740" y="194" fill="#8A8072">cli.py</text></g>
+            <g><rect x="840" y="132" width="120" height="36" rx="6" fill="#FFFEFC" stroke="#D6C9B5"/><text x="900" y="154" fill="#8A8072">main.py</text></g>
+          </g>
+        </svg>
+        <div class="legend">
+          <span><i class="in-scope"></i>In scope (15)</span>
+          <span><i class="blacklisted"></i>Blacklisted (1)</span>
+          <span><i></i>Unaffected (22)</span>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+<script>
+(function () {
+  var shell = document.querySelector(".shell");
+  try { if (localStorage.getItem("mf-sb-min") === "1") shell.classList.add("sb-min"); } catch (e) {}
+  window.mfToggleSidebar = function () {
+    shell.classList.toggle("sb-min");
+    try { localStorage.setItem("mf-sb-min", shell.classList.contains("sb-min") ? "1" : "0"); } catch (e) {}
+  };
+})();
+</script>
+</body>
+</html>

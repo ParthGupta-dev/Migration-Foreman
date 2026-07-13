@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Foreman — Batches (mock)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="foreman.css">
+<style>
+  .board-head { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
+  .board-head .hint { margin-left: auto; }
+
+  .bboard { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-bottom: 28px; }
+  .btile {
+    text-align: left;
+    background: var(--card);
+    border: 1px solid var(--line); border-radius: var(--r-card);
+    box-shadow: var(--shadow-card);
+    padding: 16px 20px;
+    cursor: pointer; color: var(--ink);
+    font-family: var(--font-ui); font-size: 14px;
+    display: flex; flex-direction: column; gap: 9px;
+  }
+  .btile:hover { border-color: var(--faint); }
+  .btile.sel { border-color: var(--primary); }
+  .btile.b-fail  { border-color: #D9A99A; background: #F7EEE9; }
+  .btile.b-retry { border-color: #D9BC8E; background: #F8F1E4; }
+  .btile-top { display: flex; align-items: center; gap: 10px; }
+  .btile-name { font-weight: 600; font-size: 14px; }
+  .btile-top .pill { margin-left: auto; }
+  .btile-meta { display: flex; gap: 14px; color: var(--dim); font-size: 12px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .btile-reason { color: var(--fail-text); font-size: 12px; font-weight: 600; font-family: var(--font-mono); }
+  .btile-round { color: var(--retry-text); font-size: 12px; font-weight: 600; font-family: var(--font-mono); }
+
+  /* full-width batch detail */
+  .bdetail { display: none; }
+  .bdetail.open { display: block; }
+  .bdetail-head { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+  .bdetail-head h2 { font-size: 16px; font-weight: 700; }
+  .bdetail-head .btn { margin-left: auto; }
+  .bdetail-sub { color: var(--dim); font-size: 13px; margin-bottom: 16px; }
+  .btn-discuss { background: var(--fail); color: #fff; border: none; }
+  .btn-discuss:hover { background: #9A4E3C; }
+
+  .fcard { padding: 0; overflow: hidden; }
+  .fhead { display: flex; align-items: center; gap: 10px; padding: 14px 24px; }
+  .fpath { font-size: 13px; font-weight: 500; }
+  .fmeta { margin-left: auto; color: var(--dim); font-size: 12px; }
+  .fbody { padding: 0 24px 18px; }
+  .fbody .codeblock + .codeblock { margin-top: 12px; }
+  .fail-reason { color: var(--fail-text); font-size: 13px; font-weight: 600; margin-bottom: 10px; }
+  .fbody h4 { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--dim); margin: 14px 0 8px; }
+  .fbody h4:first-child { margin-top: 0; }
+  .codeblock.faillog .ln { color: var(--fail-text); }
+  .codeblock.faillog .ln.ctx { color: var(--dim); }
+  .nodiff { color: var(--dim); font-size: 12px; font-family: var(--font-mono); }
+</style>
+</head>
+<body>
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <symbol id="i-factory" viewBox="0 0 24 24"><path d="M2 20a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8l-7 5V8l-7 5V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M17 18h1"/><path d="M12 18h1"/><path d="M7 18h1"/></symbol>
+  <symbol id="i-scroll" viewBox="0 0 24 24"><path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/></symbol>
+  <symbol id="i-boxes" viewBox="0 0 24 24"><path d="M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z"/><path d="m7 16.5-4.74-2.85"/><path d="m7 16.5 5-3"/><path d="M7 16.5v5.17"/><path d="M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z"/><path d="m17 16.5-5-3"/><path d="m17 16.5 4.74-2.85"/><path d="M17 16.5v5.17"/><path d="M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z"/><path d="M12 8 7.26 5.15"/><path d="m12 8 4.74-2.85"/><path d="M12 13.5V8"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="i-term" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></symbol>
+  <symbol id="i-clip" viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+  <symbol id="i-panel-close" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m16 15-3-3 3-3"/></symbol>
+  <symbol id="i-panel-open" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m14 9 3 3-3 3"/></symbol>
+</svg>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="logo"><span class="logo-mark"></span><span class="logo-word">Foreman</span></div>
+    <nav class="nav" aria-label="Main">
+      <a class="nav-item" href="overview.html" title="Overview"><svg class="nav-ico"><use href="#i-factory"/></svg><span class="nav-txt">Overview</span></a>
+      <a class="nav-item" href="plan.html" title="Plan"><svg class="nav-ico"><use href="#i-scroll"/></svg><span class="nav-txt">Plan</span></a>
+      <a class="nav-item active has-badge" href="batches.html" aria-current="page" title="Batches"><svg class="nav-ico"><use href="#i-boxes"/></svg><span class="nav-txt">Batches</span><span class="nav-badge">1</span></a>
+      <a class="nav-item" href="chat.html" title="Chat"><svg class="nav-ico"><use href="#i-chat"/></svg><span class="nav-txt">Chat</span></a>
+      <a class="nav-item" href="log.html" title="Log"><svg class="nav-ico"><use href="#i-term"/></svg><span class="nav-txt">Log</span></a>
+      <a class="nav-item" href="summary.html" title="Summary"><svg class="nav-ico"><use href="#i-clip"/></svg><span class="nav-txt">Summary</span></a>
+    </nav>
+    <div class="sidebar-sep"></div>
+    <div class="active-label">Campaigns</div>
+    <div class="hist-list">
+      <a class="hist-item on" href="overview.html" title="legacy_format → format_text — running · 9/15">
+        <span class="lamp st-run pulse"></span>
+        <span class="hist-body"><span class="hist-name">legacy_format → format_text</span><span class="hist-meta">running · 9/15</span></span>
+      </a>
+      <a class="hist-item" href="#" title="requests → httpx — done · 12/12 · switches the dashboard to that campaign">
+        <span class="lamp st-ok"></span>
+        <span class="hist-body"><span class="hist-name">requests → httpx</span><span class="hist-meta">done · 12/12 · 3d</span></span>
+      </a>
+      <a class="hist-item" href="#" title="drop moment.js — failed · switches the dashboard to that campaign">
+        <span class="lamp st-fail"></span>
+        <span class="hist-body"><span class="hist-name">drop moment.js</span><span class="hist-meta">failed · 6d</span></span>
+      </a>
+      <a class="hist-new" href="landing.html" title="New campaign"><svg class="nav-ico"><use href="#i-plus"/></svg><span class="nav-txt">New campaign</span></a>
+    </div>
+    <button class="collapse-btn" onclick="mfToggleSidebar()" title="Toggle sidebar" aria-label="Toggle sidebar">
+      <svg class="nav-ico ico-collapse"><use href="#i-panel-close"/></svg>
+      <svg class="nav-ico ico-expand"><use href="#i-panel-open"/></svg>
+      <span class="nav-txt">Collapse</span>
+    </button>
+    <p class="mock-note">mock · mid-run · click a batch<br>other mocks: <a href="index.html">index</a></p>
+  </aside>
+
+  <main class="content">
+    <header class="topstrip">
+      <div class="ts-row">
+        <span class="campaign-name mono">mf/campaign-3f9a2c1e</span>
+        <span class="state-chip"><span class="lamp st-run pulse"></span>RUNNING</span>
+        <span class="ts-frac mono">9/15 accepted</span>
+      </div>
+      <div class="progress"><div class="progress-fill" style="width:60%"></div></div>
+    </header>
+
+    <div class="page page-wide" style="max-width:1160px">
+      <div class="board-head">
+        <h1 class="page-title" style="margin:0">Batches</h1>
+        <span class="hint">click a batch for every diff, test result and attempt · sorted: escalated → retrying → running → accepted</span>
+      </div>
+
+      <div class="bboard" id="board"></div>
+
+      <section class="bdetail" id="detail" tabindex="-1"></section>
+    </div>
+  </main>
+</div>
+
+<script>
+/* ---------------- batch data (mock) ----------------
+   Same campaign as every other mock: 15 files in 5 batches.
+   Colors match the Overview scene's category palette. */
+var BATCHES = {
+  "B-02": {
+    name: "export", hue: "#8A8B4E", status: "escalated",
+    reason: "exporter.py — 3 rounds exhausted",
+    files: [
+      { path: "src/exporter.py", st: "fail", meta: "escalated · 3 rounds · tests 4/6 · 25m 12s",
+        failReason: "Column-width assertions diverge from a mechanical swap — format_text pads differently than legacy_format.",
+        log: [
+          "FAIL: test_export_column_widths (tests.test_exporter.ExporterTests)",
+          "AssertionError: expected 'NAME        QTY' got 'NAME          QTY'",
+          "FAIL: test_export_alignment (tests.test_exporter.ExporterTests)",
+          "AssertionError: column 2 misaligned by 2 chars on rows > 999",
+          "----------------------------------------------------------------------",
+          "Ran 6 tests — 2 failed. Same assertions in all 3 rounds."
+        ],
+        rounds: [
+          ["fail", "Round 1", "FAIL 4/6", "14:18:03", "Mechanical swap; width kwarg forwarded unchanged."],
+          ["fail", "Round 2", "FAIL 4/6", "14:22:41", "Re-dispatched with round 1 failure log. Tried explicit width=12 — same assertions."],
+          ["fail", "Round 3", "FAIL 4/6 · ESCALATED", "14:27:19", "Final attempt exhausted. The suite pins legacy padding behavior format_text doesn't reproduce."]
+        ],
+        diff: [
+          ["hunk", "@@ src/exporter.py:74 @@  (round 3 attempt — not merged)"],
+          ["ctx", "     for row in table:"],
+          ["del", "-        cells.append(legacy_format(row.name, width=12))"],
+          ["add", "+        cells.append(format_text(row.name, width=12))"],
+          ["hunk", "@@ src/exporter.py:91 @@"],
+          ["del", "-        header = legacy_format(col.title, width=col.w, pad=True)"],
+          ["add", "+        header = format_text(col.title, width=col.w, pad=True)"]
+        ] },
+      { path: "src/digest.py", st: "run", meta: "running · round 1 · worktree wt-10", nodiff: "in progress — diff appears when the round completes" },
+      { path: "src/manifest.py", st: "queued", meta: "queued", nodiff: "queued — waiting for a free worktree slot" }
+    ]
+  },
+  "B-03": {
+    name: "data", hue: "#5A6BA0", status: "retrying",
+    reason: "receipt.py — round 2/3",
+    files: [
+      { path: "src/receipt.py", st: "retry", meta: "retrying · round 2/3 · tests 4/6",
+        failReason: "Round 1 changed the prefix casing; test_receipt_totals pins \"Total: $12.00\" verbatim.",
+        log: [
+          "FAIL: test_receipt_totals (tests.test_receipt.ReceiptTests)",
+          "AssertionError: expected 'Total: $12.00' got 'TOTAL — $12.00'",
+          "----------------------------------------------------------------------",
+          "Ran 6 tests — 2 failed in round 1. Round 2 running."
+        ],
+        rounds: [
+          ["fail", "Round 1", "FAIL 4/6", "14:21:44", "Swap also normalized the prefix — the suite disagrees."],
+          ["retry", "Round 2", "RUNNING", "14:32:07", "Re-dispatched with the round 1 failure log attached. Keeping prefixes verbatim."]
+        ],
+        diff: [
+          ["hunk", "@@ src/receipt.py:41 @@  (round 2, in progress)"],
+          ["ctx", "     def footer(self, total):"],
+          ["del", "-        return legacy_format(total, prefix=\"Total: \")"],
+          ["add", "+        return format_text(total, prefix=\"Total: \")"]
+        ] },
+      { path: "src/report.py", st: "ok", meta: "accepted · round 1 · tests 6/6 · 3m 59s",
+        diff: [
+          ["hunk", "@@ src/report.py:22 @@"],
+          ["del", "-        title = legacy_format(section.title, width=48)"],
+          ["add", "+        title = format_text(section.title, width=48)"],
+          ["hunk", "@@ src/report.py:57 @@"],
+          ["del", "-        return legacy_format(body, indent=2)"],
+          ["add", "+        return format_text(body, indent=2)"]
+        ] },
+      { path: "src/invoice.py", st: "ok", meta: "accepted · round 1 · tests 6/6 · 2m 41s",
+        diff: [
+          ["hunk", "@@ src/invoice.py:33 @@"],
+          ["del", "-        line = legacy_format(item.label, width=30)"],
+          ["add", "+        line = format_text(item.label, width=30)"]
+        ] },
+      { path: "src/summary.py", st: "queued", meta: "queued", nodiff: "queued — waiting for a free worktree slot" }
+    ]
+  },
+  "B-01": {
+    name: "render", hue: "#3F8A82", status: "running",
+    reason: "",
+    files: [
+      { path: "src/labels.py", st: "run", meta: "running · round 1 · worktree wt-09", nodiff: "in progress — diff appears when the round completes" },
+      { path: "src/formatter.py", st: "ok", meta: "accepted · round 1 · tests 6/6 · 2m 18s",
+        diff: [
+          ["hunk", "@@ src/formatter.py:12 @@"],
+          ["ctx", "     def render(self, value):"],
+          ["del", "-        return legacy_format(value, width=40)"],
+          ["add", "+        return format_text(value, width=40)"],
+          ["hunk", "@@ src/formatter.py:48 @@"],
+          ["del", "-        cell = legacy_format(text, align=\"right\")"],
+          ["add", "+        cell = format_text(text, align=\"right\")"]
+        ] },
+      { path: "src/banner.py", st: "ok", meta: "accepted · round 1 · tests 6/6 · 2m 06s",
+        diff: [
+          ["hunk", "@@ src/banner.py:9 @@"],
+          ["del", "-        return legacy_format(msg, upper=True)"],
+          ["add", "+        return format_text(msg, upper=True)"]
+        ] },
+      { path: "src/headers.py", st: "ok", meta: "accepted · round 1 · tests 6/6 · 1m 47s",
+        diff: [
+          ["hunk", "@@ src/headers.py:17 @@"],
+          ["del", "-        return legacy_format(name, sep=\"-\")"],
+          ["add", "+        return format_text(name, sep=\"-\")"]
+        ] }
+    ]
+  },
+  "B-04": {
+    name: "notify", hue: "#B0788F", status: "accepted",
+    reason: "",
+    files: [
+      { path: "src/notify.py", st: "ok", meta: "accepted · 2 rounds · tests 6/6 · 5m 44s",
+        rounds: [
+          ["fail", "Round 1", "FAIL 5/6", "14:09:47", "Missed the f-string call site on line 44; test_notify_subject pins the prefix."],
+          ["ok", "Round 2", "PASS 6/6", "14:12:58", "Patched both call sites — accepted and merged."]
+        ],
+        diff: [
+          ["hunk", "@@ src/notify.py:31 @@"],
+          ["del", "-        subject = legacy_format(event.name, prefix=\"[mf] \")"],
+          ["add", "+        subject = format_text(event.name, prefix=\"[mf] \")"],
+          ["hunk", "@@ src/notify.py:44 @@"],
+          ["del", "-        body = f\"{legacy_format(event.body, indent=2)}\""],
+          ["add", "+        body = f\"{format_text(event.body, indent=2)}\""]
+        ] },
+      { path: "src/greeting.py", st: "ok", meta: "accepted · round 1 · tests 6/6 · 1m 52s",
+        diff: [
+          ["hunk", "@@ src/greeting.py:6 @@"],
+          ["del", "-        return legacy_format(f\"Hello {user}\", trim=True)"],
+          ["add", "+        return format_text(f\"Hello {user}\", trim=True)"]
+        ] }
+    ]
+  },
+  "B-05": {
+    name: "sdk", hue: "#5E96A8", status: "accepted",
+    reason: "",
+    files: [
+      { path: "sdk/render.py", st: "ok", meta: "accepted · round 1 · tests 6/6 · 3m 22s",
+        diff: [
+          ["hunk", "@@ sdk/render.py:28 @@"],
+          ["del", "-        return legacy_format(block.text, width=block.w)"],
+          ["add", "+        return format_text(block.text, width=block.w)"],
+          ["hunk", "@@ sdk/render.py:63 @@"],
+          ["del", "-        out.append(legacy_format(line))"],
+          ["add", "+        out.append(format_text(line))"]
+        ] },
+      { path: "sdk/textutil.py", st: "ok", meta: "accepted · round 1 · tests 6/6 · 2m 14s",
+        diff: [
+          ["hunk", "@@ sdk/textutil.py:11 @@"],
+          ["del", "-        return legacy_format(s, strip=True)"],
+          ["add", "+        return format_text(s, strip=True)"]
+        ] }
+    ]
+  }
+};
+
+var ORDER = ["B-02", "B-03", "B-01", "B-04", "B-05"];
+var PILL = {
+  escalated: ["pill-fail", "Escalated", "st-fail", ""],
+  retrying:  ["pill-retry", "Retrying", "st-retry", "pulse"],
+  running:   ["pill-run", "Running", "st-run", "pulse"],
+  accepted:  ["pill-ok", "Accepted", "st-ok", ""],
+  queued:    ["pill-queued", "Queued", "st-queued", ""]
+};
+var FLAMP = { ok: "st-ok", run: "st-run pulse", retry: "st-retry pulse", fail: "st-fail", queued: "st-queued" };
+
+function counts(b) {
+  var done = 0, tp = 0, tt = 0;
+  b.files.forEach(function (f) {
+    if (f.st === "ok") done++;
+    var m = (f.meta.match(/tests (\d)\/(\d)/) || []);
+    if (m[1]) { tp += +m[1]; tt += +m[2]; }
+  });
+  return b.files.length + " files · " + done + "/" + b.files.length + " done" + (tt ? " · tests " + tp + "/" + tt : "");
+}
+
+/* ---------------- board ---------------- */
+var board = document.getElementById("board");
+ORDER.forEach(function (id) {
+  var b = BATCHES[id], p = PILL[b.status];
+  var el = document.createElement("button");
+  el.className = "btile" + (b.status === "escalated" ? " b-fail" : b.status === "retrying" ? " b-retry" : "");
+  el.setAttribute("data-b", id);
+  el.innerHTML =
+    '<div class="btile-top"><span class="cat-dot" style="background:' + b.hue + '"></span>' +
+    '<span class="btile-name">' + b.name + '</span><span class="mono" style="font-size:11px;color:var(--faint)">' + id + '</span>' +
+    '<span class="pill ' + p[0] + '"><span class="lamp ' + p[2] + ' ' + p[3] + '"></span>' + p[1] + '</span></div>' +
+    '<div class="btile-meta">' + counts(b) + '</div>' +
+    (b.status === "escalated" ? '<div class="btile-reason">' + b.reason + '</div>' : "") +
+    (b.status === "retrying" ? '<div class="btile-round">' + b.reason + '</div>' : "");
+  el.addEventListener("click", function () { openBatch(id, el); });
+  board.appendChild(el);
+});
+
+/* ---------------- detail ---------------- */
+function esc(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;"); }
+
+function codeblock(lines, cls) {
+  return '<div class="codeblock' + (cls ? " " + cls : "") + '">' + lines.map(function (l) {
+    if (typeof l === "string") return '<span class="ln">' + esc(l) + '</span>';
+    var t = l[0], txt = esc(l[1]);
+    if (t === "hunk") return '<span class="ln hunk">' + txt + '</span>';
+    if (t === "del") return '<span class="ln del">' + txt + '</span>';
+    if (t === "add") return '<span class="ln add">' + txt + '</span>';
+    return '<span class="ln ctx">' + txt + '</span>';
+  }).join("") + "</div>";
+}
+
+function timeline(rounds) {
+  return '<div class="timeline">' + rounds.map(function (r, i) {
+    var lamp = r[0] === "ok" ? "st-ok" : r[0] === "retry" ? "st-retry pulse" : "st-fail";
+    var verb = r[0] === "ok" ? "v-ok" : r[0] === "retry" ? "v-retry" : "v-fail";
+    return '<div class="round"><div class="round-rail"><span class="lamp ' + lamp + '"></span>' +
+      (i < rounds.length - 1 ? '<span class="rail"></span>' : "") + "</div><div>" +
+      '<div class="round-head"><strong>' + r[1] + '</strong><span class="' + verb + ' mono" style="font-size:12px">' + r[2] + '</span><span class="round-time mono">' + r[3] + "</span></div>" +
+      '<p class="round-body">' + r[4] + "</p></div></div>";
+  }).join("") + "</div>";
+}
+
+function openBatch(id, tile) {
+  var b = BATCHES[id], p = PILL[b.status];
+  document.querySelectorAll(".btile").forEach(function (t) { t.classList.remove("sel"); });
+  if (tile) tile.classList.add("sel");
+
+  var h = '<div class="bdetail-head">' +
+    '<span class="cat-dot" style="width:14px;height:14px;background:' + b.hue + '"></span>' +
+    "<h2>" + b.name + ' <span class="mono" style="font-size:12px;color:var(--faint);font-weight:400">' + id + "</span></h2>" +
+    '<span class="pill ' + p[0] + '"><span class="lamp ' + p[2] + ' ' + p[3] + '"></span>' + p[1] + "</span>" +
+    (b.status === "escalated"
+      ? '<a class="btn btn-discuss btn-sm" href="chat.html?ref=' + id + '">Discuss in chat →</a>'
+      : "") +
+    "</div>" +
+    '<p class="bdetail-sub">' + counts(b) + (b.status === "escalated" ? " · the retry loop is exhausted — this one needs you" : "") + "</p>";
+
+  var body = b.files.map(function (f) {
+    var inner = "";
+    if (f.failReason) inner += '<p class="fail-reason">' + f.failReason + "</p>";
+    if (f.log) inner += "<h4>Failure log</h4>" + codeblock(f.log, "faillog");
+    if (f.rounds) inner += "<h4>Attempts</h4>" + timeline(f.rounds);
+    if (f.diff) inner += "<h4>Diff</h4>" + codeblock(f.diff);
+    if (f.nodiff) inner += '<p class="nodiff">' + f.nodiff + "</p>";
+    return '<div class="card fcard"><div class="fhead"><span class="lamp ' + FLAMP[f.st] + '"></span>' +
+      '<span class="mono fpath">' + f.path + '</span><span class="mono fmeta">' + f.meta + "</span></div>" +
+      (inner ? '<div class="fbody">' + inner + "</div>" : "") + "</div>";
+  }).join("");
+
+  var d = document.getElementById("detail");
+  d.innerHTML = h + body;
+  d.classList.add("open");
+  d.scrollIntoView({ behavior: "smooth", block: "start" });
+  d.focus({ preventScroll: true });
+}
+
+/* deep link: batches.html?open=B-02 */
+var openParam = new URLSearchParams(location.search).get("open");
+if (openParam && BATCHES[openParam]) {
+  openBatch(openParam, document.querySelector('[data-b="' + openParam + '"]'));
+}
+
+(function () {
+  var shell = document.querySelector(".shell");
+  try { if (localStorage.getItem("mf-sb-min") === "1") shell.classList.add("sb-min"); } catch (e) {}
+  window.mfToggleSidebar = function () {
+    shell.classList.toggle("sb-min");
+    try { localStorage.setItem("mf-sb-min", shell.classList.contains("sb-min") ? "1" : "0"); } catch (e) {}
+  };
+})();
+</script>
+</body>
+</html>
