@@ -28,6 +28,7 @@ import config
 import db
 import llm
 import models
+from discovery import blacklist
 from discovery import candidates as discovery
 from errors import ApiError
 from execution import engine, splitter, worktree
@@ -315,6 +316,22 @@ async def create_campaign(body: models.CampaignIn) -> models.CampaignCreatedOut:
     )
     if not unit_files:
         raise ApiError(400, "seam_scope_empty", "Seam scope globs matched no files")
+
+    # Server-side blacklist gate for EVERY path (manual seams included):
+    # blacklisted files never become executable units, regardless of how the
+    # seam was created or what its scope globs match.
+    extra_blacklist = (load_repo_config(repo_path) or {}).get("blacklist")
+    allowed = [
+        rel for rel in unit_files
+        if not blacklist.is_blacklisted(rel, extra_blacklist)
+    ]
+    if not allowed:
+        raise ApiError(
+            400, "seam_scope_blacklisted",
+            "Every file matched by this seam is blacklisted "
+            "(auth/, payments/, migrations/, secrets, or repo-config blacklist)",
+        )
+    unit_files = allowed
 
     campaign_row = await db.fetchrow(
         "INSERT INTO campaigns (seam_id, status) VALUES ($1, 'running') RETURNING campaign_id",

@@ -6,3 +6,6 @@ gitpython
 networkx
 tree-sitter
 openai
+# Test runner available to verification commands running inside the backend
+# container (the LLM frequently proposes pytest for Python repos).
+pytest

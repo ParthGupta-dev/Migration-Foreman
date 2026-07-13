@@ -21,6 +21,7 @@ MOCK_CODEX=1 short-circuits in the callers before this module is reached.
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass
 
 import config
@@ -111,7 +112,7 @@ def complete(prompt: str, json_mode: bool = False) -> str:
     """
     provider = active_provider()
     try:
-        from openai import OpenAI
+        from openai import OpenAI, RateLimitError
     except ImportError as exc:
         raise LlmError(f"openai package not installed: {exc}") from exc
 
@@ -131,23 +132,58 @@ def complete(prompt: str, json_mode: bool = False) -> str:
             kwargs["response_format"] = {"type": "json_object"}
         return client.chat.completions.create(**kwargs).choices[0].message.content
 
-    try:
+    text = ""
+    for rate_attempt in range(_RATE_LIMIT_RETRIES + 1):
         try:
-            text = invoke(json_mode)
-        except Exception as exc:
-            if not json_mode:
+            try:
+                text = invoke(json_mode)
+            except RateLimitError:
                 raise
-            # Not every model behind an OpenAI-compatible endpoint supports
-            # JSON mode; degrade to a plain completion rather than failing.
-            logger.debug("%s rejected JSON mode (%s); retrying without", provider.name, exc)
-            text = invoke(False)
-    except Exception as exc:
-        raise LlmError(f"{provider.name} invocation failed: {exc}") from exc
+            except Exception as exc:
+                if not json_mode:
+                    raise
+                # Not every model behind an OpenAI-compatible endpoint supports
+                # JSON mode; degrade to a plain completion rather than failing.
+                logger.debug("%s rejected JSON mode (%s); retrying without", provider.name, exc)
+                text = invoke(False)
+            if text and text.strip():
+                break
+            # Reasoning models (e.g. gpt-oss on Groq) occasionally emit an
+            # empty completion; like a 429, that transient must not consume
+            # one of the unit's MAX_ATTEMPTS — retry the same call.
+            if rate_attempt == _RATE_LIMIT_RETRIES:
+                raise LlmError(f"{provider.name} returned empty output")
+            logger.warning(
+                "%s returned empty output; retry %d/%d",
+                provider.name, rate_attempt + 1, _RATE_LIMIT_RETRIES,
+            )
+            time.sleep(1)
+        except RateLimitError as exc:
+            # A transient per-minute rate limit must not consume one of the
+            # unit's MAX_ATTEMPTS: wait out the provider's suggested delay
+            # (parallel units share one quota) and try the same call again.
+            if rate_attempt == _RATE_LIMIT_RETRIES:
+                raise LlmError(f"{provider.name} invocation failed: {exc}") from exc
+            match = _RETRY_AFTER_RE.search(str(exc))
+            delay = min(float(match.group(1)) + 1.0, 60.0) if match else 15.0
+            logger.warning(
+                "%s rate limited; sleeping %.1fs before retry %d/%d",
+                provider.name, delay, rate_attempt + 1, _RATE_LIMIT_RETRIES,
+            )
+            time.sleep(delay)
+        except LlmError:
+            raise
+        except Exception as exc:
+            raise LlmError(f"{provider.name} invocation failed: {exc}") from exc
 
     if not text or not text.strip():
         raise LlmError(f"{provider.name} returned empty output")
     return text
 
+
+_RATE_LIMIT_RETRIES = 3
+# Groq 429 messages include the wait, e.g. "Please try again in 5.925s"
+_RETRY_AFTER_RE = re.compile(r"try again in (\d+(?:\.\d+)?)s")
 
 _FENCE_RE = re.compile(r"^```[\w+-]*\n(.*)\n```$", re.DOTALL)
 

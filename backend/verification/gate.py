@@ -183,7 +183,19 @@ async def run_unit(
 def _commit_attempt(worktree_path: Path, scope_glob: str, attempt: int) -> None:
     from shell import run_git
 
-    run_git(["add", "-A"], cwd=worktree_path)
+    # Test runs inside the worktree generate bytecode/caches between attempts;
+    # committing them causes add/add binary conflicts when unit branches merge
+    # into the campaign branch, so they are excluded from the unit commit.
+    run_git(
+        [
+            "add", "-A", "--", ".",
+            ":(exclude,glob)**/__pycache__/**",
+            ":(exclude,glob)**/*.pyc",
+            ":(exclude,glob)**/.pytest_cache/**",
+            ":(exclude,glob)**/node_modules/**",
+        ],
+        cwd=worktree_path,
+    )
     run_git(
         [*worktree.GIT_IDENTITY, "commit", "--allow-empty", "-m",
          f"migrate {scope_glob} (attempt {attempt})"],

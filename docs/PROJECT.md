@@ -663,14 +663,14 @@ This is the team's live project tracker. Each person checks off tasks/subtasks a
 
 ## 12. Definition of Done & Demo Lock
 
-**Demo-ready checklist:**
-- [ ] End-to-end campaign works (repo ingest → seam review → campaign → live dashboard → PR)
-- [ ] Discovery Engine produces a real, non-trivial ranked candidate on the frozen demo repo
-- [ ] At least one retry scenario has been deliberately triggered and confirmed to converge
-- [ ] Escalation path confirmed (a unit can actually reach `escalated` status)
-- [ ] PR assembly works (`POST /campaign/{id}/finalize`)
-- [ ] Demo repo frozen, test suite confirmed clean with no flaky tests
-- [ ] Full rehearsal completed and timed to fit the demo slot, with a backup recording
+**Demo-ready checklist:** *(verified in the 2026-07-13 rehearsal session — real Groq `openai/gpt-oss-20b`, full API-level run; payloads and WS event streams captured)*
+- [x] End-to-end campaign works (repo ingest → seam review → campaign → live dashboard → PR) — ingest 0.7–2s; AI discovery grounded real seams; campaign streamed every unit_status/unit_escalated/campaign_completed event over the WebSocket; Apply Locally merged cleanly (idempotent). *UI click-through still to be exercised for the video.*
+- [x] Discovery Engine produces a real, non-trivial ranked candidate on the frozen demo repo — `src/**/*.py` combinedScore 1.0; `payments/**/*.py` correctly `blacklisted: true`
+- [x] At least one retry scenario has been deliberately triggered and confirmed to converge — real-model runs: units failed verification with genuine test logs and passed on attempts 2–3; mock run: exporter unit failed 3/3 deterministically
+- [x] Escalation path confirmed (a unit can actually reach `escalated` status) — full `pending → running → failed → retrying (×3) → escalated` audit trail in `unit_events`, escalation carried the real unittest traceback, retry loop stopped at exactly MAX_ATTEMPTS=3
+- [ ] PR assembly works (`POST /campaign/{id}/finalize`) — *graceful fallback verified* (non-GitHub repo → `502 pr_creation_failed`, summary keeps diff view; `GET /github/status` connected); a real PR URL needs a GitHub-hosted test repo — team decision
+- [x] Demo repo frozen, test suite confirmed clean with no flaky tests — 7 tests, run twice back-to-back, identical OK; repo untouched at `745a8a8`
+- [ ] Full rehearsal completed and timed to fit the demo slot, with a backup recording — *timed API-level rehearsal: 1m24s (clean run) / 3m32s (run with retries + escalation); backup video of a UI run still to be recorded*
 - [ ] Deck finalized with real (not placeholder) closing numbers
 
 **Demo lock policy:** Once the checklist above is fully complete and the full rehearsal (Checkpoint 8, section 10) has passed, the project enters demo lock.

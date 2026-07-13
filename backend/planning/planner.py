@@ -17,7 +17,7 @@ import logging
 import re
 from pathlib import Path
 
-from discovery import parser
+from discovery import blacklist, parser
 from execution import splitter
 
 logger = logging.getLogger("migration_foreman.planner")
@@ -63,7 +63,9 @@ def _mock_plan(intent: str) -> dict:
     }
 
 
-def _validate(repo_path: Path, plan: dict) -> dict:
+def _validate(
+    repo_path: Path, plan: dict, extra_blacklist: list[str] | None = None
+) -> dict:
     before = str(plan.get("beforePattern") or "").strip()
     after = str(plan.get("afterPattern") or "").strip()
     if not before or not after:
@@ -86,16 +88,21 @@ def _validate(repo_path: Path, plan: dict) -> dict:
     except re.error:
         count_in = lambda text: text.count(before)
 
-    # occurrence census: repo-relative path -> match count
+    # occurrence census: repo-relative path -> match count. Blacklisted paths
+    # (auth/, payments/, migrations/, secrets + repo-config extras) are
+    # excluded here so no discovered seam can ever ground into them.
     occurrences: dict[str, int] = {}
     for file in parser.list_scannable_files(repo_path):
+        rel = file.relative_to(repo_path).as_posix()
+        if blacklist.is_blacklisted(rel, extra_blacklist):
+            continue
         try:
             text = file.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
         count = count_in(text)
         if count:
-            occurrences[file.relative_to(repo_path).as_posix()] = count
+            occurrences[rel] = count
     if not occurrences:
         raise PlanValidationError(
             "plan_pattern_not_found",
