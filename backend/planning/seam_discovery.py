@@ -31,6 +31,7 @@ import config
 import llm
 from discovery import graph as depgraph
 from discovery import parser
+from discovery import profiler
 from planning import planner
 from repo_config import load_repo_config
 
@@ -52,6 +53,10 @@ Engineering objective: {objective}
 
 Repository analysis:
 {analysis}
+
+Repository profile (inferred automatically -- no configuration file
+required or consulted):
+{profile}
 
 Repository source files:
 {tree}
@@ -120,9 +125,15 @@ def discover_seams(repo_path: Path, objective: str) -> dict:
     Returns the full discovery payload: repoSummary, grounded seams in
     dependency-respecting execution order, dropped seams with reasons, and
     campaign-level rollups (overall risk, file totals, time estimate).
+
+    Nothing here requires a Migration Foreman file to exist: the repository
+    profile (discovery/profiler.py) that grounds the model's proposals is
+    inferred fresh from the clone every time, and .migration-foreman.json
+    (if present) only ever supplies an optional blacklist override below.
     """
     summary = analyze_repository(repo_path)
-    proposals = _generate(repo_path, objective, summary)
+    profile = profiler.build_profile(repo_path)
+    proposals = _generate(repo_path, objective, summary, profile)
     extra_blacklist = (load_repo_config(repo_path) or {}).get("blacklist")
 
     seams: list[dict] = []
@@ -179,7 +190,20 @@ def discover_seams(repo_path: Path, objective: str) -> dict:
     }
 
 
-def _generate(repo_path: Path, objective: str, summary: dict) -> list[dict]:
+def _format_profile(profile: dict) -> str:
+    lines = []
+    for key in (
+        "frameworks", "packageManager", "buildSystem", "testFramework",
+        "sourceRoots", "importantDirectories", "entryPoints",
+        "dependencyManifests", "ciConfig", "dockerConfig",
+    ):
+        value = profile.get(key)
+        if value:
+            lines.append(f"- {key}: {value}")
+    return "\n".join(lines) if lines else "- (no strong signals detected; treat as a minimal/greenfield repo)"
+
+
+def _generate(repo_path: Path, objective: str, summary: dict, profile: dict) -> list[dict]:
     if config.MOCK_CODEX:
         # Offline path: the single-seam mock planner becomes a one-seam
         # discovery so the approval flow still exercises end to end.
@@ -203,7 +227,9 @@ def _generate(repo_path: Path, objective: str, summary: dict) -> list[dict]:
     analysis = "\n".join(
         f"- {key}: {value}" for key, value in summary.items()
     )
-    prompt = _PROMPT_TEMPLATE.format(objective=objective, analysis=analysis, tree=tree)
+    prompt = _PROMPT_TEMPLATE.format(
+        objective=objective, analysis=analysis, profile=_format_profile(profile), tree=tree
+    )
     try:
         # complete_json handles JSON mode, lenient extraction, and one
         # valid-JSON-only retry before giving up (see llm.complete_json).

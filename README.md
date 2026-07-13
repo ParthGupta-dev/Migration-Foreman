@@ -92,7 +92,7 @@ The CLI uses the same discovery pipeline as the UI: it prints the discovered sea
 
 The demo repo is a small Python project where a deprecated `legacy_format` helper must be replaced by `format_text` across modules that use it in different ways — some trivially, some in ways that break tests and exercise the retry/escalation path.
 
-**1. Ingest.** Open http://localhost:3000, click the demo repo preset, paste any Git URL, or click **Connect GitHub** and pick one of your own repositories from the dropdown (private repos included — the connected session's token is used to clone). The backend clones the repo, builds the import dependency graph, and ranks migration candidates.
+**1. Ingest.** Open http://localhost:3000, click the demo repo preset, paste any Git URL, or click **Connect GitHub** and pick one of your own repositories from the dropdown (private repos included — the connected session's token is used to clone). The backend clones the repo, builds the import dependency graph, ranks migration candidates, and bootstraps a **repository profile** — languages, frameworks, package manager, build system, test framework, source roots, entry points, CI/Docker config — inferred entirely from what's on disk (`backend/discovery/profiler.py`). No `.migration-foreman` file of any kind is required for any of this: a first-time repository with zero prior Migration Foreman state works identically to one with campaign history. Only after a campaign completes does the backend optionally cache that profile plus a campaign-history entry into `.migration-foreman/` inside the clone — purely a speed/history cache; delete it and the next run just re-infers everything. See `GET /repo/{id}/profile`.
 
 **2. State the objective in plain English.** The default **AI Discovery** mode shows an objective box. Type:
 
@@ -145,6 +145,38 @@ The whole migration workflow completes without any GitHub authentication; publis
 
 Without this, `GET /github/status` reports `oauthAvailable: false` and the UI shows the manual-token fallback instead of the Connect button. A separately configured `GITHUB_TOKEN` env var makes `/github/status` report `connected: true` for the PR-creation fallback path, but it is **not** an OAuth session (`oauthConnected` stays `false`) and cannot be used to browse or pick "your" repositories — that requires an actual Connect GitHub login.
 
+### GitHub API reference
+
+All GitHub-facing endpoints live behind `SESSION_COOKIE` = `mf_session` (an `HttpOnly`, `SameSite=Lax` cookie the backend sets — the frontend never reads or sends the token itself, just `credentials: "include"`). None of them require a request body token unless noted; the manual-token fallback is only ever a per-request override on `POST /campaign/{id}/finalize`.
+
+**Auth / session**
+
+| Endpoint | Notes |
+| --- | --- |
+| `GET /auth/github/login?next=/` (alias `GET /github/oauth/start`) | 302 → `github.com/login/oauth/authorize` with a session-bound CSRF `state` and `scope=repo read:user`. `next` (default `/`) is the frontend path to return to; non-`/`-prefixed values are rejected back to `/`. Mints and sets the `mf_session` cookie if none exists yet. **400** `github_oauth_not_configured` if `GITHUB_OAUTH_CLIENT_ID`/`SECRET` aren't set. |
+| `GET /auth/github/callback` (alias `GET /github/callback`) | GitHub's redirect target (`code`, `state`, or `error` query params). Validates `state` (one-shot, 10-minute TTL, session-bound), exchanges `code` for a token, fetches the GitHub profile, stores the (encrypted) session in Postgres, then 302s to `{FRONTEND_BASE_URL}{next}?github=connected\|cancelled\|error` — never a raw error page or an uncaught exception. |
+| `GET /auth/session` | `{authenticated, username, avatar, githubId, repositoriesAvailable}`. `authenticated: false` (all other fields `null`/`false`) when there's no session or it expired — never an error. Touches the session's sliding-window expiry on success. |
+| `POST /auth/logout` | Destroys the session server-side (Postgres row deleted). Returns `{"loggedOut": true}` unconditionally, even with no cookie present. |
+| `GET /github/status` | `{connected, oauthConnected, username, oauthAvailable, avatar, repositoryCount, expiresAt}`. `connected` is true for session **or** env `GITHUB_TOKEN`; `oauthConnected` is true only for a real session — that's the flag the repo/branch picker gates on, not `connected`. `repositoryCount` is best-effort (`null` if the live GitHub call fails, e.g. rate limit). |
+
+**Repositories**
+
+| Endpoint | Notes |
+| --- | --- |
+| `GET /github/repositories` | `{repositories: [{owner, name, fullName, defaultBranch, private, permissions}]}` — every repo the session's token can see (owner + collaborator), paginated server-side. **401** `github_not_authenticated` if there's no usable token (no session and no `GITHUB_TOKEN`). |
+| `GET /github/repository/{owner}/{repo}` | Single-repository metadata, same shape as one entry above. **401** `github_not_authenticated` under the same condition. |
+| `GET /github/repository/{owner}/{repo}/branches` | `{branches: [{name, protected}]}`. Same auth requirement as above. |
+
+**Pull requests / repo creation**
+
+| Endpoint | Notes |
+| --- | --- |
+| `POST /repo` | `{repoUrl, branch?}`. `branch` is optional — omit it to clone the repo's default branch, or name one to `git clone -b <branch>` instead (used by the branch picker). If `repoUrl` is a `github.com` URL and this session/env has a token, the clone is authenticated automatically (needed for private repos) — the token is never persisted or logged, only the original `repoUrl` is. |
+| `POST /campaign/{id}/finalize` | `{githubToken?}`. Token precedence: request body (manual paste) → OAuth session → `GITHUB_TOKEN` env. **502** `pr_creation_failed` on any push/API failure (non-GitHub `repoUrl`, no token at all, GitHub API error) — the frontend falls back to the aggregated diffs. |
+| `POST /github/pull-request` | `{campaignId, title?, body?}` → `{campaignId, prUrl, acceptedUnits, escalatedUnits}`. The session-auth equivalent of `finalize` with custom title/body and no token in the request at all; requires the campaign to be `completed`. Same **502** `pr_creation_failed` failure mode. |
+
+Everything above is implemented as thin route handlers over `services/github_service.py`, which is the only place that resolves *which* token to use (session → request body → `GITHUB_TOKEN` env) and the only caller of `github/client.py`'s GitHub REST wrapper — no other module talks to the GitHub API directly.
+
 ## LLM providers
 
 Everything model-facing goes through one env-driven client (`backend/llm.py`). Set keys in `.env` and the planner, migrator, retries, and rationale streaming all follow automatically:
@@ -167,6 +199,7 @@ Backend at http://localhost:8000 (interactive docs at `/docs`):
 | `POST /repo` | Clone + analyze a repository |
 | `GET /repo/{id}/candidates` | Ranked migration candidates |
 | `GET /repo/{id}/graph` | Dependency graph for the frontend views |
+| `GET /repo/{id}/profile` | Zero-config repository profile (languages, frameworks, package manager, build system, test framework, structure, entry points, CI/Docker config) — inferred fresh or loaded from an optional `.migration-foreman/` cache |
 | `POST /repo/{id}/discover` | **AI Seam Discovery** — the one planning pipeline (AI Discovery + Autonomous + CLI): objective in, repo analysis + grounded candidate seams out (read-only, advisory — confirmation happens before anything is created) |
 | `POST /repo/{id}/seam` | Create a seam (from a confirmed discovered seam, a candidate, or manually) |
 | `POST /campaign` | Start a migration campaign |
@@ -181,6 +214,7 @@ Backend at http://localhost:8000 (interactive docs at `/docs`):
 | `POST /auth/logout` | Destroy the current GitHub session |
 | `GET /github/repositories` | Repositories available to the authenticated session (owner, name, defaultBranch, private, permissions) |
 | `GET /github/repository/{owner}/{repo}` | Metadata for one repository |
+| `GET /github/repository/{owner}/{repo}/branches` | Branches for one repository (name, protected) — powers the repo-input page's branch picker |
 | `POST /github/pull-request` | Push + open a PR for a completed campaign using the authenticated session — no token in the request |
 | `WS /ws/campaign/{id}` | Live unit status, reasoning, and escalation events |
 | `GET /health` | Service, database, and active LLM provider status |

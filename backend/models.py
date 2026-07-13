@@ -34,6 +34,27 @@ class DiscoverIn(BaseModel):
     objective: str
 
 
+class RepoProfileOut(BaseModel):
+    """The zero-config bootstrap profile (discovery/profiler.py) — inferred
+    entirely from what's on disk, never requiring a Migration Foreman file
+    to exist. fromCache=True means it was loaded from a prior successful
+    campaign's optional .migration-foreman/ cache for this same clone."""
+
+    repoId: str
+    fromCache: bool
+    languages: dict[str, int]
+    frameworks: list[str]
+    packageManager: str | None
+    buildSystem: str | None
+    testFramework: str | None
+    sourceRoots: list[str]
+    importantDirectories: list[str]
+    entryPoints: list[str]
+    dependencyManifests: list[str]
+    ciConfig: list[str]
+    dockerConfig: list[str]
+
+
 class RepoSummaryOut(BaseModel):
     fileCount: int
     sourceFileCount: int
