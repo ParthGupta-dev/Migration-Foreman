@@ -5,8 +5,11 @@ Design authority: Sujat. This is the only frontend redesign doc — do not creat
 > **Revision 2 (2026-07-13, approved by Sujat):** direction changed from dark
 > industrial charcoal to a **clean light dashboard** — white cards on a soft
 > gray canvas, rounded corners, tinted status pills, minimal color. §2, §3,
-> §5.1, §6, §7 and §8 updated to match. The round-1 dark flow scene survives
-> only as `design/mocks/overview-scene.html` (superseded, reference only).
+> §5.1, §6, §7 and §8 updated to match.
+>
+> **Revision 3 (2026-07-13, Sujat):** Overview stays the **isometric flow
+> scene** (restyled to the light palette), not a KPI dashboard — that variant
+> was built and rejected. Mock: `design/mocks/overview.html`.
 
 ## 0. Process — read this first
 
@@ -26,7 +29,7 @@ Functional skeleton, zero identity: default Tailwind slate + blue-600, no fonts 
 1. **Clean light, not slate-dark.** White cards on a soft gray canvas. Color is reserved for status; the chrome is neutral. If a surface shouts, it's wrong.
 2. **Aggressive removal.** Raw algorithm scores, decorative charts, redundant labels — delete, don't restyle. In doubt: remove.
 3. **Effort heuristic.** Precision is the aesthetic: 8px grid, `tabular-nums` on every figure, consistent 12px card radii, aligned 1px borders, one shadow token.
-4. **The chrome stays still.** Motion is limited to drawer slide, log auto-scroll, and lamp pulse — nothing else moves. `prefers-reduced-motion` respected everywhere.
+4. **Motion lives in the flow scene; the chrome stays still.** Expressive animation belongs to the Overview scene only. Elsewhere: drawer slide, log auto-scroll, lamp pulse — nothing else moves. `prefers-reduced-motion` respected everywhere.
 5. **Peak-end.** The Summary page's mono tally line ("14/15 units migrated and verified autonomously · 1 escalated · 47 min") is the demo's final frame. Build it as carefully as the live views.
 
 ## 3. Design tokens (replace, don't extend)
@@ -82,7 +85,7 @@ Two columns. No third column — background task status lives in the sidebar, no
 
 ## 5. Pages
 
-**5.1 Overview** — a clean KPI dashboard (mock: `design/mocks/overview.html`), live via the existing WS events. Four KPI cards (Accepted x/y, In flight, First-pass rate, Escalated) · a "Needs attention" chip row linking to Review/Units · a Live activity feed (recent `unit_status` events as pill rows, "View all" → Log) · Units-by-status distribution bars · a compact seam summary. No decorative charts — every figure is real campaign state. Idle (no campaign) state doubles as the product explainer. *(Supersedes the round-1 isometric flow scene, kept at `design/mocks/overview-scene.html` for reference.)*
+**5.1 Overview** — the live flow scene, light theme (mock: `design/mocks/overview.html`). Pipeline as spatial flow, driven by WS events: PLAN → WORKTREES (parallel lanes) → GATE → ACCEPTED → PR, plus a RETRY LOOP (amber, back into a lane) and ESCALATION DOCK (red siding). Unit tokens move on `unit_status` events; light-gray isometric slabs on a white card, tokens in status colors. Isometric 2.5D SVG + GSAP, not Three.js. Click a token → same drawer as Units. Idle state doubles as the product explainer, one caption line beneath. 5 states: idle, running, retry looping, escalation docked, complete.
 
 **5.2 Seam** — current wizard content as a page: repo input → mode → seam definition → grounded plan review → dependency graph → confirm & start. `CandidateList`: raw `combined/centrality/activity` scores become one plain-language line, exact scores in a tooltip. Keep `DependencyGraph`, recolor to tokens, add a legend.
 
@@ -109,7 +112,7 @@ Two columns. No third column — background task status lives in the sidebar, no
 | `CampaignSummaryChart.tsx` | DELETE (+ recharts from package.json) |
 | `StatusBadge.tsx` | Keep; recolor, purple → red |
 | `PlanIntentForm/ManualSeamForm/ModeToggle/CandidateList/DependencyGraph` | Keep on Seam page, reskin |
-| NEW `components/OverviewDashboard.tsx` (+ `KpiCard`, `StatusBars`, `ActivityFeed`) | Overview page — built only after mock approval |
+| NEW `components/FlowScene.tsx` | Overview scene — built only after mock approval |
 | `globals.css` | Charcoal body, focus rings, scrollbar to tokens |
 
 ## 7. Phases (each = one PR on `redesign/control-room`)
@@ -118,7 +121,7 @@ Two columns. No third column — background task status lives in the sidebar, no
 2. **Shell + routing** — sidebar, 6 route segments, ACTIVE widget, top strip.
 3. **Units page** — board, tiles, drawer migration.
 4. **Log + Review + Summary pages** — DispatchLog merge, ReviewQueue, tally line, delete recharts.
-5. **Overview dashboard** — KPI cards, needs-attention row, activity feed, status bars, wired to live WS + campaign data. Mock: `design/mocks/overview.html`; implement only after its approval.
+5. **Overview flow scene — mock first.** The standalone mock lives at `design/mocks/overview.html` (no app wiring, static/fake data): 5 states (idle, running, retry looping, escalation docked, complete) + the gate-fail → retry transition. Iterate on this file directly with Sujat until he approves it. Only after approval does real `components/FlowScene.tsx` begin, wired to live WS data.
 6. **GATED (backend + team approval):** pause/resume, escalation actions, per-unit token cost. New routes — flag per CLAUDE.md before touching.
 
 ## 8. Acceptance (reject any phase that fails)

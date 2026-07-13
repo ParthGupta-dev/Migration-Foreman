@@ -3,21 +3,67 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Foreman — Overview (mock)</title>
+<title>Foreman — Overview flow scene (mock)</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="foreman.css">
 <style>
-  .two-col { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; align-items: start; }
-  @media (max-width: 1100px) { .two-col { grid-template-columns: 1fr; } }
-  .activity-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
-  .activity-row:last-child { border-bottom: none; }
-  .activity-row .time { color: var(--faint); font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 12px; width: 64px; flex: none; }
-  .activity-row .path { font-family: var(--font-mono); font-size: 12px; width: 132px; flex: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .activity-row .msg { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .card-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 16px; }
-  .card-head .card-title { margin: 0; }
+  .scene-wrap {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: var(--r-card); box-shadow: var(--shadow-card);
+    padding: 24px 16px 16px;
+  }
+  #scene { width: 100%; height: auto; display: block; }
+
+  /* prism faces — light gray slabs, depth via brightness, white seams */
+  .prism polygon { stroke: #FFFFFF; stroke-width: 1; }
+  .prism { color: #E4E7EC; }
+  .f-top   { fill: currentColor; }
+  .f-right { fill: currentColor; filter: brightness(0.92); }
+  .f-left  { fill: currentColor; filter: brightness(0.82); }
+
+  .flat { fill: #F2F4F7; stroke: #E0E3E8; stroke-width: 1; }
+  .lit .f-top { stroke: var(--ok); stroke-width: 1.5; }
+  .dock-plate.flat { stroke: var(--fail); }
+
+  .scene-label {
+    font-family: var(--font-ui); font-weight: 600; font-size: 11px;
+    letter-spacing: 0.1em; text-transform: uppercase; fill: var(--dim);
+    text-anchor: middle;
+  }
+  .feed-line { stroke: #D0D5DD; stroke-width: 1; fill: none; }
+  .retry-path { stroke: var(--retry); stroke-width: 1.5; stroke-dasharray: 5 5; fill: none; }
+  .esc-path { stroke: var(--fail); stroke-width: 1.5; stroke-dasharray: 5 5; fill: none; }
+
+  .token { cursor: pointer; }
+  .tk-run    { color: var(--run); }
+  .tk-ok     { color: var(--ok); }
+  .tk-retry  { color: var(--retry); }
+  .tk-fail   { color: var(--fail); }
+  .tk-queued { color: var(--queued); }
+  .token polygon { stroke: rgba(255, 255, 255, 0.8); stroke-width: 0.75; }
+
+  .gate-lamp { r: 5; }
+  .dimmed #stations, .dimmed #paths, .dimmed #sky { opacity: 0.55; }
+
+  .caption {
+    margin-top: 12px; text-align: center;
+    font-size: 14px; color: var(--dim);
+  }
+  .caption strong { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  /* mock-only controls */
+  .mock-controls {
+    margin-top: 24px; padding: 14px 16px;
+    border: 1px dashed #D0D5DD; border-radius: var(--r-card);
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  }
+  .mock-controls .lbl {
+    font-family: var(--font-mono); font-size: 10px; color: var(--faint);
+    letter-spacing: 0.12em; margin-right: 8px;
+  }
+  .state-btn.on { background: var(--queued-bg); border-color: var(--faint); }
 </style>
 </head>
 <body>
@@ -39,7 +85,7 @@
       <span>demo-repo</span>
       <span class="chip-frac mono">9/15</span>
     </a>
-    <p class="mock-note">mock · mid-run state<br>other mocks: <a href="index.html">index</a></p>
+    <p class="mock-note">mock · flow scene, 5 states<br>other mocks: <a href="index.html">index</a></p>
   </aside>
 
   <main class="content">
@@ -47,93 +93,284 @@
       <div class="ts-row">
         <span class="campaign-name">legacy_format → format_text</span>
         <span class="state-chip pill-run"><span class="lamp st-run pulse"></span>Running</span>
-        <span class="ts-frac mono">9/15 accepted · 32 min elapsed</span>
+        <span class="ts-frac mono">9/15 accepted</span>
       </div>
       <div class="progress"><div class="progress-fill" style="width:60%"></div></div>
     </header>
 
-    <div class="page">
-      <div class="kpi-row">
-        <div class="kpi">
-          <div class="kpi-head"><span class="kpi-label">Accepted</span><span class="lamp st-ok"></span></div>
-          <p class="kpi-value">9<span style="color:var(--faint); font-size:20px; font-weight:600">/15</span></p>
-          <p class="kpi-sub">Tested &amp; merged units</p>
-        </div>
-        <div class="kpi">
-          <div class="kpi-head"><span class="kpi-label">In flight</span><span class="lamp st-run pulse"></span></div>
-          <p class="kpi-value">3</p>
-          <p class="kpi-sub">2 running · 1 retrying</p>
-        </div>
-        <div class="kpi">
-          <div class="kpi-head"><span class="kpi-label">First-pass rate</span><span class="lamp st-ok"></span></div>
-          <p class="kpi-value">82%</p>
-          <p class="kpi-sub">9 of 11 verified on round 1</p>
-        </div>
-        <div class="kpi">
-          <div class="kpi-head"><span class="kpi-label">Escalated</span><span class="lamp st-fail"></span></div>
-          <p class="kpi-value">1</p>
-          <p class="kpi-sub">Needs human review</p>
-        </div>
+    <div class="page" style="max-width:1160px">
+      <div class="scene-wrap">
+        <svg id="scene" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Migration pipeline: plan, worktree lanes, verification gate, accepted platform, pull request">
+          <g id="paths"></g>
+          <g id="stations"></g>
+          <g id="tokens"></g>
+          <g id="gate-near"></g>
+          <g id="sky"></g>
+          <g id="fx"></g>
+          <g id="labels"></g>
+        </svg>
+        <p id="caption" class="caption"></p>
       </div>
 
-      <p class="section-label">Needs attention</p>
-      <div class="attn-row">
-        <a class="attn" href="review.html"><span class="lamp lamp-lg st-fail"></span><span><strong>1</strong> unit escalated</span><span class="arrow">→</span></a>
-        <a class="attn" href="units.html"><span class="lamp lamp-lg st-retry pulse"></span><span><strong>1</strong> unit retrying · round 2/3</span><span class="arrow">→</span></a>
-        <a class="attn" href="units.html"><span class="lamp lamp-lg st-queued"></span><span><strong>2</strong> units queued</span><span class="arrow">→</span></a>
+      <div class="mock-controls">
+        <span class="lbl">MOCK CONTROLS — not part of the UI</span>
+        <button class="btn btn-ghost btn-sm state-btn on" data-state="idle">idle</button>
+        <button class="btn btn-ghost btn-sm state-btn" data-state="running">running</button>
+        <button class="btn btn-ghost btn-sm state-btn" data-state="retry">retry looping</button>
+        <button class="btn btn-ghost btn-sm state-btn" data-state="escalated">escalation docked</button>
+        <button class="btn btn-ghost btn-sm state-btn" data-state="complete">complete</button>
+        <button class="btn btn-primary btn-sm" id="play" style="margin-left:auto">▶ play gate-fail → retry</button>
       </div>
-
-      <div class="two-col">
-        <section class="card">
-          <div class="card-head">
-            <h2 class="card-title">Live activity</h2>
-            <a href="log.html" style="font-size:13px; font-weight:600">View all</a>
-          </div>
-          <div class="activity-row"><span class="time">14:33:10</span><span class="path">src/digest.py</span><span class="pill pill-run">Dispatch</span><span class="msg">worktree wt-10 · round 1</span></div>
-          <div class="activity-row"><span class="time">14:33:10</span><span class="path">src/labels.py</span><span class="pill pill-run">Dispatch</span><span class="msg">worktree wt-09 · round 1</span></div>
-          <div class="activity-row"><span class="time">14:32:07</span><span class="path">src/receipt.py</span><span class="pill pill-retry">Retry</span><span class="msg">round 2 dispatched — failure log attached</span></div>
-          <div class="activity-row"><span class="time">14:27:19</span><span class="path">src/exporter.py</span><span class="pill pill-fail">Escalated</span><span class="msg">3 rounds exhausted — queued for review</span></div>
-          <div class="activity-row"><span class="time">14:12:58</span><span class="path">src/notify.py</span><span class="pill pill-ok">Accepted</span><span class="msg">6/6 tests · round 2</span></div>
-          <div class="activity-row"><span class="time">14:06:12</span><span class="path">src/report.py</span><span class="pill pill-ok">Accepted</span><span class="msg">6/6 tests · 64s</span></div>
-          <div class="activity-row"><span class="time">14:04:31</span><span class="path">src/formatter.py</span><span class="pill pill-ok">Accepted</span><span class="msg">6/6 tests · 78s</span></div>
-        </section>
-
-        <section class="card">
-          <h2 class="card-title">Units by status</h2>
-          <div class="bar-row">
-            <div class="bar-head"><span>Accepted</span><span class="n">9</span></div>
-            <div class="bar-track"><div class="bar-fill" style="width:60%; background:var(--ok)"></div></div>
-          </div>
-          <div class="bar-row">
-            <div class="bar-head"><span>Running</span><span class="n">2</span></div>
-            <div class="bar-track"><div class="bar-fill" style="width:13.3%; background:var(--run)"></div></div>
-          </div>
-          <div class="bar-row">
-            <div class="bar-head"><span>Retrying</span><span class="n">1</span></div>
-            <div class="bar-track"><div class="bar-fill" style="width:6.7%; background:var(--retry)"></div></div>
-          </div>
-          <div class="bar-row">
-            <div class="bar-head"><span>Escalated</span><span class="n">1</span></div>
-            <div class="bar-track"><div class="bar-fill" style="width:6.7%; background:var(--fail)"></div></div>
-          </div>
-          <div class="bar-row" style="margin-bottom:0">
-            <div class="bar-head"><span>Queued</span><span class="n">2</span></div>
-            <div class="bar-track"><div class="bar-fill" style="width:13.3%; background:var(--queued)"></div></div>
-          </div>
-
-          <div class="sidebar-sep" style="margin:20px 0"></div>
-
-          <h2 class="card-title">Seam</h2>
-          <dl class="kv" style="grid-template-columns:110px 1fr">
-            <dt>Pattern</dt><dd>legacy_format →<br>format_text</dd>
-            <dt>Scope</dt><dd>src/** · sdk/**</dd>
-            <dt>Gate</dt><dd>unittest · 6 tests</dd>
-            <dt>Branch</dt><dd>mf/campaign-3f9a</dd>
-          </dl>
-        </section>
-      </div>
+      <p class="hint" style="margin-top:8px">In the app, tokens move on <span class="mono">unit_status</span> events and clicking a token opens the same unit drawer as Units (see <a href="units.html">units.html</a>). Real build uses GSAP; this mock uses CSS transitions.</p>
     </div>
   </main>
 </div>
+
+<script>
+(function () {
+  "use strict";
+  var SVG = "http://www.w3.org/2000/svg";
+  var scene = document.getElementById("scene");
+  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* light-palette status hexes (mirror foreman.css) */
+  var HEX = { ok: "#16A34A", run: "#2563EB", retry: "#F59E0B", fail: "#EF4444", queued: "#98A2B3" };
+
+  /* flattened isometric projection */
+  var C = 0.866, S = 0.29;
+  function P(x, y, z) { return [(x - y) * C, (x + y) * S - (z || 0)]; }
+  function pts(list) { return list.map(function (p) { return p[0].toFixed(1) + "," + p[1].toFixed(1); }).join(" "); }
+
+  function el(name, attrs, parent) {
+    var n = document.createElementNS(SVG, name);
+    for (var k in attrs) n.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(n);
+    return n;
+  }
+
+  /* iso box: base at (x,y) elevation z0, size w×d, height h */
+  function prism(parent, x, y, z0, w, d, h, cls) {
+    var t = z0 + h;
+    var g = el("g", { "class": "prism" + (cls ? " " + cls : "") }, parent);
+    el("polygon", { "class": "f-left",  points: pts([P(x, y + d, t), P(x + w, y + d, t), P(x + w, y + d, z0), P(x, y + d, z0)]) }, g);
+    el("polygon", { "class": "f-right", points: pts([P(x + w, y, t), P(x + w, y + d, t), P(x + w, y + d, z0), P(x + w, y, z0)]) }, g);
+    el("polygon", { "class": "f-top",   points: pts([P(x, y, t), P(x + w, y, t), P(x + w, y + d, t), P(x, y + d, t)]) }, g);
+    return g;
+  }
+  function flat(parent, x, y, w, d, cls) {
+    return el("polygon", { "class": "flat" + (cls ? " " + cls : ""), points: pts([P(x, y, 2), P(x + w, y, 2), P(x + w, y + d, 2), P(x, y + d, 2)]) }, parent);
+  }
+  function label(parent, x, y, z, text) {
+    var p = P(x, y, z);
+    var t = el("text", { "class": "scene-label", x: p[0], y: p[1] }, parent);
+    t.textContent = text;
+    return t;
+  }
+  function pathThrough(parent, world, cls) {
+    var proj = world.map(function (w) { return P(w[0], w[1], w[2]); });
+    var d = "M" + proj[0][0].toFixed(1) + " " + proj[0][1].toFixed(1);
+    for (var i = 1; i < proj.length; i++) {
+      var prev = proj[i - 1], cur = proj[i];
+      d += " Q" + ((prev[0] + cur[0]) / 2).toFixed(1) + " " + (Math.min(prev[1], cur[1]) - 6).toFixed(1) +
+           " " + cur[0].toFixed(1) + " " + cur[1].toFixed(1);
+    }
+    return el("path", { "class": cls, d: d }, parent);
+  }
+
+  var gPaths = document.getElementById("paths");
+  var gStations = document.getElementById("stations");
+  var gTokens = document.getElementById("tokens");
+  var gGateNear = document.getElementById("gate-near");
+  var gSky = document.getElementById("sky");
+  var gFx = document.getElementById("fx");
+  var gLabels = document.getElementById("labels");
+
+  /* ---------- static scene ---------- */
+
+  var LANES = [60, 200, 340];           // lane y-tops, depth 56
+  var LANE_X0 = 180, LANE_X1 = 560;
+
+  // plan station
+  prism(gStations, 0, 200, 0, 120, 120, 36);
+  // feed lines: plan → lane entries
+  LANES.forEach(function (ly) {
+    var a = P(120, 260, 20), b = P(LANE_X0, ly + 28, 4);
+    el("path", { "class": "feed-line", d: "M" + a[0] + " " + a[1] + " L" + b[0] + " " + b[1] }, gPaths);
+  });
+  // worktree lanes
+  LANES.forEach(function (ly) { flat(gPaths, LANE_X0, ly, LANE_X1 - LANE_X0, 56, "lane"); });
+
+  // gate: far pillar + beam (near pillar drawn above tokens)
+  prism(gStations, 600, 20, 0, 36, 36, 80);
+  prism(gStations, 600, 20, 80, 36, 436, 12);
+  var gateLampPos = P(618, 238, 104);
+  var gateLamp = el("circle", { "class": "gate-lamp", cx: gateLampPos[0], cy: gateLampPos[1], fill: HEX.run }, gStations);
+  prism(gGateNear, 600, 420, 0, 36, 36, 80);
+
+  // accepted platform + PR station
+  prism(gStations, 700, 160, 0, 190, 180, 10);
+  var prStation = prism(gStations, 940, 180, 0, 110, 110, 44);
+
+  // escalation dock
+  flat(gPaths, 580, 470, 140, 90, "dock-plate");
+  pathThrough(gPaths, [[636, 456, 2], [640, 470, 2], [648, 500, 2]], "esc-path");
+
+  // retry loop (elevated, sky layer)
+  var RETRY_WAYPOINTS = [[590, 214, 8], [540, 90, 55], [400, -10, 70], [240, 0, 55], [180, 130, 25], [200, 214, 8]];
+  pathThrough(gSky, RETRY_WAYPOINTS, "retry-path");
+
+  // labels
+  label(gLabels, 60, 260, 52, "Plan");
+  label(gLabels, 370, 30, 26, "Worktrees");
+  label(gLabels, 618, 238, 128, "Gate");
+  label(gLabels, 795, 250, 40, "Accepted");
+  label(gLabels, 995, 235, 62, "PR");
+  label(gLabels, 330, -30, 78, "Retry loop");
+  label(gLabels, 650, 515, -22, "Escalation dock");
+
+  /* ---------- tokens ---------- */
+
+  function token(status, x, y, z, parent) {
+    var g = el("g", { "class": "token tk-" + status, tabindex: "0", role: "button",
+                      "aria-label": "unit token (" + status + ") — opens unit drawer" }, parent || gTokens);
+    // 22×22×16 cube at local origin
+    var w = 22, d = 22, h = 16;
+    el("polygon", { "class": "f-left",  points: pts([P(0, d, h), P(w, d, h), P(w, d, 0), P(0, d, 0)]) }, g);
+    el("polygon", { "class": "f-right", points: pts([P(w, 0, h), P(w, d, h), P(w, d, 0), P(w, 0, 0)]) }, g);
+    el("polygon", { "class": "f-top",   points: pts([P(0, 0, h), P(w, 0, h), P(w, d, h), P(0, d, h)]) }, g);
+    moveTo(g, x, y, z);
+    g.addEventListener("click", function () { window.location.href = "units.html"; });
+    return g;
+  }
+  function moveTo(g, x, y, z) {
+    var p = P(x, y, z || 4);
+    g.setAttribute("transform", "translate(" + p[0].toFixed(1) + " " + p[1].toFixed(1) + ")");
+  }
+  function setStatus(g, status) {
+    g.setAttribute("class", "token tk-" + status);
+  }
+  function stack(count) {
+    for (var i = 0; i < count; i++) {
+      var col = i % 5, row = Math.floor(i / 5);
+      token("ok", 714 + col * 34, 176 + row * 52, 12);
+    }
+  }
+  function clearTokens() { gTokens.innerHTML = ""; gFx.innerHTML = ""; }
+
+  /* ---------- states ---------- */
+
+  var caption = document.getElementById("caption");
+  var STATES = {
+    idle: {
+      dim: true, lamp: HEX.queued, pr: false,
+      caption: "Foreman splits a migration into per-file units, runs each in an isolated worktree, and only ships what passes the gate.",
+      build: function () {}
+    },
+    running: {
+      lamp: HEX.run, pr: false,
+      caption: "<strong>9/15</strong> accepted · 2 units in worktrees · gate verifying",
+      build: function () {
+        token("run", 300, LANES[0] + 17);
+        token("run", 440, LANES[1] + 17);
+        token("queued", 200, LANES[2] + 17);
+        stack(9);
+      }
+    },
+    retry: {
+      lamp: HEX.retry, pr: false,
+      caption: "<strong>U-08</strong> failed the gate — round 2 dispatched with the failure log attached",
+      build: function () {
+        token("run", 320, LANES[0] + 17);
+        token("queued", 200, LANES[2] + 17);
+        var w = RETRY_WAYPOINTS[2];
+        token("retry", w[0], w[1], w[2] + 4, gFx);
+        stack(9);
+      }
+    },
+    escalated: {
+      lamp: HEX.fail, pr: false,
+      caption: "<strong>U-07</strong> exhausted 3 rounds — parked at the escalation dock for review",
+      build: function () {
+        token("run", 360, LANES[1] + 17);
+        token("fail", 630, 500, 8);
+        stack(9);
+      }
+    },
+    complete: {
+      lamp: HEX.ok, pr: true,
+      caption: "<strong>14/15</strong> units migrated and verified autonomously · <strong>1</strong> escalated · <strong>47</strong> min",
+      build: function () {
+        stack(14);
+        token("fail", 630, 500, 8);
+      }
+    }
+  };
+
+  function setState(name) {
+    var st = STATES[name];
+    clearTokens();
+    st.build();
+    gateLamp.setAttribute("fill", st.lamp);
+    prStation.setAttribute("class", "prism" + (st.pr ? " lit" : ""));
+    scene.setAttribute("class", st.dim ? "dimmed" : "");
+    caption.innerHTML = st.caption;
+    document.querySelectorAll(".state-btn").forEach(function (b) {
+      b.classList.toggle("on", b.dataset.state === name);
+    });
+  }
+
+  document.querySelectorAll(".state-btn").forEach(function (b) {
+    b.addEventListener("click", function () { setState(b.dataset.state); });
+  });
+
+  /* ---------- gate-fail → retry transition ---------- */
+
+  function glide(g, x, y, z, ms) {
+    return new Promise(function (resolve) {
+      if (reduced) { moveTo(g, x, y, z); resolve(); return; }
+      g.style.transition = "transform " + ms + "ms linear";
+      requestAnimationFrame(function () {
+        moveTo(g, x, y, z);
+        setTimeout(resolve, ms + 20);
+      });
+    });
+  }
+  function pause(ms) {
+    return new Promise(function (r) { setTimeout(r, reduced ? 0 : ms); });
+  }
+
+  var playing = false;
+  document.getElementById("play").addEventListener("click", function () {
+    if (playing) return;
+    playing = true;
+    setState("running");
+    var laneY = LANES[1] + 17;
+    var t = token("run", 260, laneY, 4, gFx);
+    caption.innerHTML = "<strong>U-08</strong> heading to the gate…";
+    glide(t, 585, laneY, 4, 1100)
+      .then(function () { setStatus(t, "fail"); gateLamp.setAttribute("fill", HEX.fail);
+        caption.innerHTML = "<strong>U-08</strong> failed verification — 4/6 tests"; return pause(650); })
+      .then(function () { setStatus(t, "retry"); gateLamp.setAttribute("fill", HEX.retry);
+        caption.innerHTML = "<strong>U-08</strong> re-dispatched — round 2, failure log attached";
+        var seq = Promise.resolve();
+        RETRY_WAYPOINTS.forEach(function (w) {
+          seq = seq.then(function () { return glide(t, w[0], w[1] === 214 ? laneY : w[1], w[2] + 4, 340); });
+        });
+        return seq; })
+      .then(function () { setStatus(t, "run"); gateLamp.setAttribute("fill", HEX.run);
+        caption.innerHTML = "<strong>U-08</strong> back in a worktree — round 2 running";
+        return glide(t, 300, laneY, 4, 700); })
+      .then(function () { playing = false; });
+  });
+
+  /* fit viewBox to drawn content */
+  setState("running");           // densest state for measuring
+  var bb = scene.getBBox();
+  scene.setAttribute("viewBox",
+    (bb.x - 24).toFixed(0) + " " + (bb.y - 24).toFixed(0) + " " +
+    (bb.width + 48).toFixed(0) + " " + (bb.height + 48).toFixed(0));
+  setState("idle");
+})();
+</script>
 </body>
 </html>
