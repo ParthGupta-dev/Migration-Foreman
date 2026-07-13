@@ -22,10 +22,11 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.requests import Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 import config
 import db
+import github_oauth
 import llm
 import models
 from discovery import blacklist
@@ -49,6 +50,9 @@ app = FastAPI(title="Migration Foreman Backend")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[config.FRONTEND_BASE_URL, "http://localhost:3000"],
+    # Credentialed requests carry the mf_session cookie so /github/status and
+    # /finalize can see the OAuth session (origins are explicit, never "*").
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -510,20 +514,22 @@ async def apply_campaign_locally(campaign_id: str) -> models.ApplyOut:
 
 @app.post("/campaign/{campaign_id}/finalize", response_model=models.FinalizeOut)
 async def finalize_campaign(
-    campaign_id: str, body: models.FinalizeIn | None = None
+    request: Request, campaign_id: str, body: models.FinalizeIn | None = None
 ) -> models.FinalizeOut:
     """Optional publishing path: push the campaign branch and open a GitHub PR.
 
-    The token comes from the request body (connect-GitHub UI flow) or falls
-    back to the GITHUB_TOKEN env var.
+    Token precedence: request body (manual-token UI) > OAuth session token
+    ("Connect GitHub" flow) > GITHUB_TOKEN env var (assembler's own fallback).
     """
     ctx = await _completed_campaign_context(campaign_id, "finalize")
+    session_id = request.cookies.get(github_oauth.SESSION_COOKIE)
+    token = (body.githubToken if body else None) or github_oauth.get_token(session_id)
     try:
         pr_url = await asyncio.to_thread(
             assembler.create_pr,
             ctx["repoUrl"], ctx["repoPath"], ctx["campaignBranch"],
             ctx["accepted"], ctx["escalated"],
-            body.githubToken if body else None,
+            token,
         )
     except assembler.PrCreationError as exc:
         # Fallback plan: frontend shows the aggregated diffs instead.
@@ -537,10 +543,85 @@ async def finalize_campaign(
     )
 
 
+# --- GitHub connection (OAuth web flow + status) --------------------------
+
+
 @app.get("/github/status", response_model=models.GithubStatusOut)
-async def github_status() -> models.GithubStatusOut:
-    """Whether the backend already has GitHub credentials (env GITHUB_TOKEN)."""
-    return models.GithubStatusOut(connected=bool(config.GITHUB_TOKEN))
+async def github_status(request: Request) -> models.GithubStatusOut:
+    """Whether this session (OAuth) or the backend (env GITHUB_TOKEN) can PR."""
+    session_id = request.cookies.get(github_oauth.SESSION_COOKIE)
+    oauth_token = github_oauth.get_token(session_id)
+    return models.GithubStatusOut(
+        connected=bool(oauth_token or config.GITHUB_TOKEN),
+        username=github_oauth.get_username(session_id),
+        oauthAvailable=github_oauth.configured(),
+    )
+
+
+@app.get("/github/oauth/start")
+async def github_oauth_start(request: Request, next: str = "/") -> RedirectResponse:
+    """Step 1 of "Connect GitHub": redirect the browser to GitHub's authorize
+    screen with a session-bound CSRF state. `next` is the frontend path to
+    return to after the dance."""
+    if not github_oauth.configured():
+        raise ApiError(
+            400, "github_oauth_not_configured",
+            "GitHub OAuth is not configured: set GITHUB_OAUTH_CLIENT_ID and "
+            "GITHUB_OAUTH_CLIENT_SECRET (register an OAuth App on GitHub), or "
+            "use the manual token field instead",
+        )
+    if not next.startswith("/"):  # only ever redirect back into our own frontend
+        next = "/"
+    session_id = request.cookies.get(github_oauth.SESSION_COOKIE) or github_oauth.new_session_id()
+    authorize_url = github_oauth.begin(session_id, next)
+    response = RedirectResponse(authorize_url, status_code=302)
+    response.set_cookie(
+        github_oauth.SESSION_COOKIE, session_id,
+        httponly=True, samesite="lax", path="/",
+    )
+    return response
+
+
+def _frontend_redirect(next_path: str, outcome: str) -> RedirectResponse:
+    separator = "&" if "?" in next_path else "?"
+    return RedirectResponse(
+        f"{config.FRONTEND_BASE_URL}{next_path}{separator}github={outcome}",
+        status_code=302,
+    )
+
+
+@app.get("/github/callback")
+async def github_oauth_callback(
+    request: Request,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+) -> RedirectResponse:
+    """Step 2: GitHub redirects here. Validate state, exchange the code, store
+    the token server-side, bounce the browser back to the frontend. Every
+    failure path redirects with ?github=<outcome> — never a raw error page."""
+    pending = github_oauth.pop_state(state) if state else None
+    next_path = pending["next"] if pending else "/"
+
+    if error:  # user cancelled / denied on the GitHub screen
+        return _frontend_redirect(next_path, "cancelled")
+    if pending is None or not code:
+        logger.warning("GitHub callback rejected: unknown/expired state")
+        return _frontend_redirect(next_path, "error")
+    if request.cookies.get(github_oauth.SESSION_COOKIE) != pending["session"]:
+        logger.warning("GitHub callback rejected: state belongs to another session")
+        return _frontend_redirect(next_path, "error")
+
+    try:
+        token = await asyncio.to_thread(github_oauth.exchange_code, code)
+    except github_oauth.OAuthError as exc:
+        logger.error("GitHub code exchange failed: %s", exc)
+        return _frontend_redirect(next_path, "error")
+
+    username = await asyncio.to_thread(github_oauth.fetch_username, token)
+    github_oauth.store_token(pending["session"], token, username)
+    logger.info("GitHub connected via OAuth as %s", username or "<unknown>")
+    return _frontend_redirect(next_path, "connected")
 
 
 # --- WebSocket ----------------------------------------------------------

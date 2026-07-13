@@ -127,7 +127,7 @@ The **verification command** is always visible on every card, in every mode — 
 **8. Publish — your choice.** When the campaign completes, the summary page shows a **Migration complete** screen (verification result, changed files, passed/escalated counts) with two publishing options:
 
 - **Apply locally (default, no GitHub needed).** One click merges the verified campaign branch into the repo's default branch in the clone, then shows the modified files, a diff summary, the local repository path, and copyable git commands (`git status` / `git log` / `git push`) to take it from there.
-- **Create pull request (optional).** Click **Connect GitHub** and paste a personal access token (kept for the browser session only, sent per request — OAuth is the intended long-term flow), or preconfigure `GITHUB_TOKEN` server-side. Then one click pushes the campaign branch and opens a PR with escalated units listed for follow-up. For non-GitHub repos this returns `502 pr_creation_failed` and the summary view falls back to the aggregated diffs.
+- **Create pull request (optional).** Click **Connect GitHub** to authorize on github.com (OAuth web flow — the access token stays server-side, keyed to your browser session, and is never sent to the frontend; reconnect after a backend restart). Requires a registered GitHub OAuth App: set `GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET`, and make sure the app's Authorization callback URL exactly matches `GITHUB_OAUTH_REDIRECT_URI`. Without one, the button falls back to pasting a personal access token (browser session only, sent per request); `GITHUB_TOKEN` can also be preconfigured server-side. Then one click pushes the campaign branch and opens a PR with escalated units listed for follow-up. For non-GitHub repos this returns `502 pr_creation_failed` and the summary view falls back to the aggregated diffs.
 
 The whole migration workflow completes without any GitHub authentication; publishing to GitHub is strictly optional post-processing.
 
@@ -160,6 +160,8 @@ Backend at http://localhost:8000 (interactive docs at `/docs`):
 | `GET /campaign/{id}/unit/{id}/preview` | Before/after file contents + full test output for the Live Preview view |
 | `POST /campaign/{id}/apply` | **Default publishing path**: merge the verified campaign branch into the local repo's default branch — no GitHub auth |
 | `POST /campaign/{id}/finalize` | Optional publishing path: push + open a GitHub PR (token from the UI or `GITHUB_TOKEN`) |
-| `GET /github/status` | Whether the backend has GitHub credentials configured |
+| `GET /github/status` | Whether this session/backend can create PRs (`connected`, OAuth `username`, `oauthAvailable`) |
+| `GET /github/oauth/start` | Begin the "Connect GitHub" OAuth web flow (302 to GitHub's authorize screen) |
+| `GET /github/callback` | OAuth redirect target: validates state, exchanges the code, stores the token server-side |
 | `WS /ws/campaign/{id}` | Live unit status, reasoning, and escalation events |
 | `GET /health` | Service, database, and active LLM provider status |

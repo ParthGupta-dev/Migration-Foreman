@@ -24,6 +24,9 @@ services:
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/migration_foreman
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID:-}
+      GITHUB_OAUTH_CLIENT_SECRET: ${GITHUB_OAUTH_CLIENT_SECRET:-}
+      GITHUB_OAUTH_REDIRECT_URI: ${GITHUB_OAUTH_REDIRECT_URI:-http://localhost:8000/github/callback}
       LLM_PROVIDER: ${LLM_PROVIDER:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       CODEX_MODEL: ${CODEX_MODEL:-gpt-5-codex}

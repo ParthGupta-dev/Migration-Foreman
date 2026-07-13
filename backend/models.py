@@ -176,9 +176,15 @@ class FinalizeOut(BaseModel):
 
 
 class GithubStatusOut(BaseModel):
-    # True when the backend has a GITHUB_TOKEN configured; the UI can also
-    # "connect" by passing a token per finalize request without this.
+    # True when this browser session holds an OAuth token or the backend has
+    # a GITHUB_TOKEN configured; the UI can also "connect" by passing a token
+    # per finalize request without either.
     connected: bool
+    # GitHub login of the OAuth-connected user (None for env-token/manual).
+    username: str | None = None
+    # Whether the "Connect GitHub" OAuth button can work at all (client
+    # id/secret configured server-side); False = UI offers the manual field.
+    oauthAvailable: bool = False
 
 
 class GraphNodeOut(BaseModel):

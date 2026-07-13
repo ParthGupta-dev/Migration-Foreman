@@ -199,6 +199,11 @@ export interface FinalizeResult {
 
 export interface GithubStatus {
   connected: boolean;
+  // GitHub login when connected via the OAuth web flow; null otherwise.
+  username: string | null;
+  // Whether the backend has an OAuth App configured — false means the UI
+  // offers the manual-token field instead of the "Connect GitHub" redirect.
+  oauthAvailable: boolean;
 }
 
 export interface HealthResponse {
