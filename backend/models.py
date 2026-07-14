@@ -140,6 +140,11 @@ class SeamIn(BaseModel):
     # back so the Plan page has a server source instead of localStorage-only.
     title: str | None = None
     plan: dict | None = None
+    # G8 (frontend_refactor.md Phase 8, landed): the provider name from the
+    # frontend's model selector (GET /llm/providers, e.g. "groq" / "codex"),
+    # persisted on the seam so every execution-time call for this campaign
+    # (not just the one discover() call) uses the model the human picked.
+    model: str | None = None
 
 
 class SeamOut(BaseModel):
@@ -151,6 +156,7 @@ class SeamOut(BaseModel):
     testCommand: str
     title: str | None = None
     plan: dict | None = None
+    provider: str | None = None
 
 
 class CampaignIn(BaseModel):

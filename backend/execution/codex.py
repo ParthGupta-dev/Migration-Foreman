@@ -90,8 +90,14 @@ def migrate_file(
     after_pattern: str,
     invariants: list[str],
     failure_log: str | None = None,
+    provider_name: str | None = None,
 ) -> tuple[str, str]:
-    """Return (migrated file contents, short migration rationale) for one unit."""
+    """Return (migrated file contents, short migration rationale) for one unit.
+
+    `provider_name` is the seam's persisted model-selector choice (G8) —
+    None falls through to llm.py's env-precedence default, unchanged from
+    before this was wired.
+    """
     if config.MOCK_CODEX:
         return _mock_migrate(content, before_pattern, after_pattern)
 
@@ -114,7 +120,7 @@ def migrate_file(
     )
 
     try:
-        text = llm.complete(prompt)
+        text = llm.complete(prompt, provider_name=provider_name)
     except llm.LlmError as exc:  # LLM failure -> consumes a retry (section 11)
         raise CodexInvocationError(str(exc)) from exc
 

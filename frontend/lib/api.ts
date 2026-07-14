@@ -68,6 +68,34 @@ export const api = {
   createRepo: (repoUrl: string, branch?: string) =>
     request<Repo>("POST", "/repo", branch ? { repoUrl, branch } : { repoUrl }),
 
+  // G7 (frontend_refactor.md): a browser-picked local folder, ingested via
+  // multipart upload — bypasses `request()` (JSON-only) since this needs a
+  // FormData body. `files` is a webkitdirectory input's FileList; each
+  // File's `webkitRelativePath` (e.g. "MyFolder/src/app.py") is preserved as
+  // the multipart part's filename so the backend can reconstruct the tree.
+  uploadRepo: async (files: FileList): Promise<Repo> => {
+    const form = new FormData();
+    for (const file of Array.from(files)) {
+      const relPath = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
+      form.append("files", file, relPath);
+    }
+    const res = await fetch(`${BACKEND_BASE_URL}/repo/upload`, {
+      method: "POST",
+      body: form,
+      credentials: "include",
+    });
+    if (!res.ok) {
+      let shape: ApiErrorShape;
+      try {
+        shape = await res.json();
+      } catch {
+        shape = { error: "unknown_error", message: res.statusText };
+      }
+      throw new ApiError(res.status, shape);
+    }
+    return res.json() as Promise<Repo>;
+  },
+
   getCandidates: (repoId: string) =>
     request<CandidatesResponse>("GET", `/repo/${repoId}/candidates`),
 

@@ -147,6 +147,7 @@ async def run_unit(
                     seam["afterPattern"],
                     seam["invariants"],
                     failure_log,
+                    seam.get("provider"),
                 )
             except codex.CodexInvocationError as exc:
                 # LLM/provider infra failure (429, timeout, empty response,

@@ -244,6 +244,10 @@ async def retry_unit(campaign_id: str, unit_id: str):
         "afterPattern": seam["after_pattern"],
         "invariants": list(seam["invariants"] or []),
         "testCommand": seam["test_command"],
+        # G8: keep a chat-triggered retry on the same provider the campaign
+        # was created with, rather than silently falling back to the env
+        # default mid-run.
+        "provider": seam["provider"],
     }
     repo_lock = asyncio.Lock()
 

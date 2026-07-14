@@ -21,14 +21,18 @@ items):
 - Phase 9: conversational chat scoped to a campaign (chat.py) --
   GET/POST /campaign/{id}/chat and the one re-dispatch action, POST
   /campaign/{id}/chat/retry-unit/{unitId}.
+- G7 (frontend_refactor.md): POST /repo/upload ingests a browser-picked local
+  folder (multipart upload, reconstructed + git-init'd server-side) through
+  the same candidate/discovery pipeline as a clone.
 """
 
 import asyncio
 import json
 import logging
 import uuid
+from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.requests import Request
@@ -214,28 +218,130 @@ async def create_repo(body: models.RepoIn, request: Request) -> models.RepoOut:
         await asyncio.to_thread(clone)
         status = "ready"
         logger.info("Repo %s ingested from %s", repo_id, body.repoUrl)
-        repo_conf = load_repo_config(dest)
-        extra_blacklist = (repo_conf or {}).get("blacklist")
-        await asyncio.to_thread(
-            discovery.compute_candidates, repo_id, dest, extra_blacklist
-        )
-        # Bootstrap the project profile now, before seam discovery ever runs.
-        # No Migration Foreman file is required for this: metadata is only
-        # detected (a prior .migration-foreman/ from an earlier successful
-        # campaign against this same clone) as an optional cache hit; absent
-        # that, the profile is inferred entirely from what's on disk.
-        metadata = await asyncio.to_thread(profiler.detect_metadata, dest)
-        profile, from_cache = await asyncio.to_thread(profiler.get_or_build_profile, repo_id, dest)
-        logger.info(
-            "Repo %s profile %s (metadata found: %s)",
-            repo_id, "loaded from cache" if from_cache else "inferred fresh", metadata,
-        )
+        await _bootstrap_repo(repo_id, dest)
     except Exception as exc:
         status = "failed"
         logger.error("Repo %s ingestion failed: %s", repo_id, exc)
 
     await db.execute("UPDATE repos SET status = $1 WHERE repo_id = $2", status, repo_id)
     return models.RepoOut(repoId=repo_id, repoUrl=body.repoUrl, status=status)
+
+
+async def _bootstrap_repo(repo_id: str, dest: Path) -> None:
+    """Post-ingestion pipeline shared by clone (POST /repo) and upload
+    (POST /repo/upload): candidate discovery + the zero-config profile.
+
+    No Migration Foreman file is required for any of this: metadata is only
+    detected (a prior .migration-foreman/ from an earlier successful campaign
+    against this same clone) as an optional cache hit; absent that, the
+    profile is inferred entirely from what's on disk.
+    """
+    repo_conf = load_repo_config(dest)
+    extra_blacklist = (repo_conf or {}).get("blacklist")
+    await asyncio.to_thread(discovery.compute_candidates, repo_id, dest, extra_blacklist)
+    metadata = await asyncio.to_thread(profiler.detect_metadata, dest)
+    profile, from_cache = await asyncio.to_thread(profiler.get_or_build_profile, repo_id, dest)
+    logger.info(
+        "Repo %s profile %s (metadata found: %s)",
+        repo_id, "loaded from cache" if from_cache else "inferred fresh", metadata,
+    )
+
+
+_MAX_UPLOAD_FILES = 5000
+
+
+def _folder_name_from_upload(files: list[UploadFile]) -> str:
+    first = (files[0].filename or "").replace("\\", "/")
+    return first.split("/")[0] or "uploaded-folder"
+
+
+def _safe_upload_path(filename: str | None, dest: Path) -> Path:
+    """Reject anything that isn't a plain relative path under `dest` —
+    client-supplied filenames from a multipart upload are untrusted input."""
+    if not filename:
+        raise ApiError(400, "upload_invalid_path", "Uploaded file has no filename")
+    normalized = filename.replace("\\", "/")
+    parts = Path(normalized).parts
+    if Path(normalized).is_absolute() or any(p in ("..", "") for p in parts):
+        raise ApiError(400, "upload_invalid_path", f"Unsafe path in upload: {filename!r}")
+    # Drop the top-level folder component (webkitRelativePath includes it) so
+    # files land directly under dest.
+    rel_parts = parts[1:] if len(parts) > 1 else parts
+    if not rel_parts:
+        raise ApiError(400, "upload_invalid_path", f"Unsafe path in upload: {filename!r}")
+    candidate = (dest / Path(*rel_parts)).resolve()
+    dest_resolved = dest.resolve()
+    if candidate != dest_resolved and dest_resolved not in candidate.parents:
+        raise ApiError(400, "upload_invalid_path", f"Path escapes upload root: {filename!r}")
+    return candidate
+
+
+@app.post("/repo/upload", response_model=models.RepoOut)
+async def upload_repo(files: list[UploadFile] = File(...)) -> models.RepoOut:
+    """G7 (frontend_refactor.md) — ingest a browser-picked local folder.
+
+    A `webkitdirectory` file input hands the browser `File` blobs with
+    relative paths, never a filesystem path the container can see and never
+    git history. The tree is reconstructed here and git-init'd fresh with one
+    commit, then the existing candidate/discovery pipeline runs unchanged.
+    `recentActivityScore` (discovery/ranking.py) has nothing to differentiate
+    on with a single bootstrap commit -- every file gets the same weight, so
+    centrality ends up dominating ranking for uploaded repos. That's a real,
+    known limitation of not having history, not a crash or a silent mask.
+    """
+    import shutil
+
+    if not files:
+        raise ApiError(400, "upload_empty", "No files were uploaded")
+    if len(files) > _MAX_UPLOAD_FILES:
+        raise ApiError(
+            400, "upload_too_large", f"Too many files in upload (max {_MAX_UPLOAD_FILES})"
+        )
+
+    folder_name = _folder_name_from_upload(files)
+    row = await db.fetchrow(
+        "INSERT INTO repos (repo_url, status) VALUES ($1, 'pulling') RETURNING repo_id",
+        f"upload://{folder_name}",
+    )
+    repo_id = str(row["repo_id"])
+    dest = _repo_path(repo_id)
+
+    try:
+        dest.mkdir(parents=True, exist_ok=True)
+        for upload in files:
+            target = _safe_upload_path(upload.filename, dest)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            content = await upload.read()
+            target.write_bytes(content)
+
+        def git_init() -> None:
+            from execution.worktree import GIT_IDENTITY
+            from shell import run_git
+
+            result = run_git(["init"], cwd=dest)
+            if not result.ok:
+                raise RuntimeError(f"git init failed: {result.output}")
+            run_git(["add", "-A"], cwd=dest)
+            result = run_git(
+                [*GIT_IDENTITY, "commit", "--allow-empty", "-m", "Initial import (uploaded folder)"],
+                cwd=dest,
+            )
+            if not result.ok:
+                raise RuntimeError(f"initial commit failed: {result.output}")
+
+        await asyncio.to_thread(git_init)
+        status = "ready"
+        logger.info(
+            "Repo %s ingested from uploaded folder %r (%d files)", repo_id, folder_name, len(files)
+        )
+        await _bootstrap_repo(repo_id, dest)
+    except Exception as exc:
+        status = "failed"
+        logger.error("Repo %s upload ingestion failed: %s", repo_id, exc)
+        shutil.rmtree(dest, ignore_errors=True)
+
+    await db.execute("UPDATE repos SET status = $1 WHERE repo_id = $2", status, repo_id)
+    return models.RepoOut(repoId=repo_id, repoUrl=f"upload://{folder_name}", status=status)
 
 
 async def _get_ready_repo(repo_id: str):
@@ -307,8 +413,12 @@ async def get_graph(repo_id: str) -> models.GraphOut:
 async def discover_seams(repo_id: str, body: models.DiscoverIn) -> models.DiscoveryOut:
     """FLAGGED contract addition — AI Seam Discovery.
 
-    A high-level engineering objective goes in ("Modernize authentication");
-    a read-only repository analysis plus grounded candidate seams come out.
+    A high-level engineering objective goes in — anything from a full
+    request down to an empty string. It only biases which repository-driven
+    migration opportunity ranks first; it is never required, and it is
+    never converted directly into a pattern (see planning/seam_discovery.py
+    for the staged idea -> per-idea grounding pipeline this enables). A
+    read-only repository analysis plus grounded candidate seams come out.
     The result is advisory and stateless: nothing is written and nothing
     executes. The client presents the seams for human approval and submits
     each approved seam through the existing POST /repo/{id}/seam ->
@@ -316,9 +426,6 @@ async def discover_seams(repo_id: str, body: models.DiscoverIn) -> models.Discov
     """
     row = await _get_ready_repo(repo_id)
     repo_id = str(row["repo_id"])
-    if not body.objective.strip():
-        raise ApiError(400, "discovery_objective_invalid", "objective must be a non-empty string")
-
     repo_path = _repo_path(repo_id)
     try:
         discovery_result = await asyncio.to_thread(
@@ -399,9 +506,11 @@ async def create_seam(repo_id: str, body: models.SeamIn) -> models.SeamOut:
 
     seam_row = await db.fetchrow(
         "INSERT INTO seams (repo_id, scope_globs, before_pattern, after_pattern, invariants, "
-        "test_command, title, plan) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb) RETURNING seam_id",
+        "test_command, title, plan, provider) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9) "
+        "RETURNING seam_id",
         repo_id, scope_globs, before, after, invariants, test_command,
         body.title, json.dumps(body.plan) if body.plan is not None else None,
+        body.model,
     )
     return models.SeamOut(
         seamId=str(seam_row["seam_id"]),
@@ -412,6 +521,7 @@ async def create_seam(repo_id: str, body: models.SeamIn) -> models.SeamOut:
         testCommand=test_command,
         title=body.title,
         plan=body.plan,
+        provider=body.model,
     )
 
 
@@ -508,6 +618,10 @@ async def create_campaign(body: models.CampaignIn) -> models.CampaignCreatedOut:
         "afterPattern": seam_row["after_pattern"],
         "invariants": list(seam_row["invariants"] or []),
         "testCommand": seam_row["test_command"],
+        # G8: the model selector's choice at seam-creation time, threaded down
+        # through engine -> gate -> codex.migrate_file for every unit/retry on
+        # this campaign. None = no explicit choice, env default applies.
+        "provider": seam_row["provider"],
     }
     asyncio.create_task(engine.run_campaign(campaign_id, seam, repo_path))
 
@@ -526,6 +640,7 @@ def _seam_out(seam_row) -> models.SeamOut:
         testCommand=seam_row["test_command"],
         title=seam_row["title"],
         plan=db.parse_jsonb(seam_row["plan"]),
+        provider=seam_row["provider"],
     )
 
 

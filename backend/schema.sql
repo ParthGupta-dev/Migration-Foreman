@@ -27,6 +27,14 @@ CREATE TABLE IF NOT EXISTS seams (
 ALTER TABLE seams ADD COLUMN IF NOT EXISTS title TEXT;
 ALTER TABLE seams ADD COLUMN IF NOT EXISTS plan JSONB;
 
+-- G8 (frontend_refactor.md Phase 8, landed): the LLM provider chosen in the
+-- frontend's model selector (GET /llm/providers) at seam-creation time, so it
+-- survives past the one planning call and is used for every per-unit
+-- execution/retry call on this seam too (execution/codex.py), instead of
+-- always falling through to llm.py's env-precedence default. NULL = no
+-- explicit choice was made (env default applies, unchanged behaviour).
+ALTER TABLE seams ADD COLUMN IF NOT EXISTS provider TEXT;
+
 CREATE TABLE IF NOT EXISTS campaigns (
   campaign_id  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   seam_id      UUID NOT NULL REFERENCES seams(seam_id),

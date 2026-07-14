@@ -57,6 +57,11 @@ export interface SeamRequest {
   afterPattern?: string;
   invariants?: string[];
   testCommand?: string;
+  // G8 (frontend_refactor.md Phase 8, landed): the model selector's choice
+  // (GET /llm/providers name, e.g. "groq"/"codex") at seam-creation time —
+  // persisted so every execution/retry call for this campaign uses the
+  // provider the human picked, not just the one planning call.
+  model?: string | null;
 }
 
 export type PlanRisk = "low" | "medium" | "high";

@@ -27,7 +27,7 @@ type Result =
   | { kind: "discovery"; discovery: Discovery; approvals: Record<string, SeamApproval> }
   | { kind: "autopick"; discovery: Discovery; top: DiscoveredSeam | null; confirmed: boolean };
 
-function manualSeamRequest(seam: DiscoveredSeam, testCommand: string): SeamRequest {
+function manualSeamRequest(seam: DiscoveredSeam, testCommand: string, model: string | null): SeamRequest {
   return {
     candidateId: null,
     manualSeam: {
@@ -37,6 +37,7 @@ function manualSeamRequest(seam: DiscoveredSeam, testCommand: string): SeamReque
       invariants: seam.invariants,
       testCommand,
     },
+    model,
   };
 }
 
@@ -196,7 +197,7 @@ function LandingPageInner() {
         const candidate = result.candidates.find((c) => c.candidateId === result.pickedId);
         if (!candidate) return;
         jobs.push({
-          request: { candidateId: candidate.candidateId, manualSeam: null },
+          request: { candidateId: candidate.candidateId, manualSeam: null, model: selectedModel },
           title: candidate.scopeGlobs.join(", "),
         });
       } else if (result.kind === "discovery") {
@@ -209,7 +210,7 @@ function LandingPageInner() {
         }
         for (const seam of approved) {
           jobs.push({
-            request: manualSeamRequest(seam, result.approvals[seam.seamId].testCommand),
+            request: manualSeamRequest(seam, result.approvals[seam.seamId].testCommand, selectedModel),
             title: seam.title,
             discoveredSeam: seam,
           });
@@ -217,7 +218,7 @@ function LandingPageInner() {
       } else if (result.kind === "autopick") {
         if (!result.confirmed || !result.top) return;
         jobs.push({
-          request: manualSeamRequest(result.top, result.top.testCommand ?? ""),
+          request: manualSeamRequest(result.top, result.top.testCommand ?? "", selectedModel),
           title: result.top.title,
           discoveredSeam: result.top,
         });

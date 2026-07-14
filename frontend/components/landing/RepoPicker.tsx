@@ -140,15 +140,25 @@ export default function RepoPicker({
     pull(remoteUrl.trim(), remoteBranch.trim());
   }
 
-  function handleFolderSelect(e: React.ChangeEvent<HTMLInputElement>) {
-    if (!e.target.files || e.target.files.length === 0) return;
-    const folderName = (e.target.files[0] as File & { webkitRelativePath: string }).webkitRelativePath.split("/")[0];
+  async function handleFolderSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files;
     e.target.value = "";
+    if (!files || files.length === 0) return;
+    const folderName = (files[0] as File & { webkitRelativePath: string }).webkitRelativePath.split("/")[0];
     setOpen(false);
-    onNotice(
-      `Browsing "${folderName}" isn't wired to the backend yet — a browser folder picker can't hand the container a filesystem path or git history. Tracked as gap G7. Use the demo repo, a repo URL, or GitHub for now.`,
-      "info"
-    );
+    onPullStart();
+    try {
+      const result = await api.uploadRepo(files);
+      if (result.status === "ready") {
+        onRepoReady(result, null);
+      } else {
+        onRepoFailed();
+        onNotice(`Uploading "${folderName}" failed — check the folder and try again.`, "error");
+      }
+    } catch (err) {
+      onRepoFailed();
+      onNotice(err instanceof ApiError ? err.message : String(err), "error");
+    }
   }
 
   async function loadRepoList() {
