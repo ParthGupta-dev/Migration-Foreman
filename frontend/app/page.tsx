@@ -84,7 +84,7 @@ function LandingPageInner() {
       .llmProviders()
       .then((res) => {
         setProviders(res.providers);
-        setSelectedModel(res.active ?? res.providers[0]?.name ?? null);
+        setSelectedModel(res.active ?? res.providers[0]?.models[0]?.model ?? null);
       })
       .catch(() => setProviders([]));
   }, []);

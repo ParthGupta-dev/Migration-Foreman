@@ -32,19 +32,25 @@ class CandidatesOut(BaseModel):
 
 class DiscoverIn(BaseModel):
     objective: str
-    # Optional override for the env-selected LLM provider — the frontend's
-    # model selector (GET /llm/providers). Ignored under MOCK_CODEX.
+    # Optional specific model string from the frontend's model selector
+    # (GET /llm/providers, e.g. "llama-3.1-8b-instant") — overrides the
+    # env-selected default for this call. Ignored under MOCK_CODEX.
     model: str | None = None
+
+
+class LlmModelOut(BaseModel):
+    model: str
+    usage: str  # "low" | "mid" | "high" -- static tier, see llm._MODEL_CATALOG
 
 
 class LlmProviderOut(BaseModel):
     name: str
-    model: str
+    models: list[LlmModelOut]
 
 
 class LlmProvidersOut(BaseModel):
     providers: list[LlmProviderOut]
-    active: str | None
+    active: str | None  # the currently-active MODEL string (or "mock")
 
 
 class RepoProfileOut(BaseModel):
@@ -140,10 +146,11 @@ class SeamIn(BaseModel):
     # back so the Plan page has a server source instead of localStorage-only.
     title: str | None = None
     plan: dict | None = None
-    # G8 (frontend_refactor.md Phase 8, landed): the provider name from the
-    # frontend's model selector (GET /llm/providers, e.g. "groq" / "codex"),
-    # persisted on the seam so every execution-time call for this campaign
-    # (not just the one discover() call) uses the model the human picked.
+    # G8 (frontend_refactor.md Phase 8, landed): the specific model string
+    # from the frontend's model selector (GET /llm/providers, e.g.
+    # "llama-3.1-8b-instant"), persisted on the seam so every execution-time
+    # call for this campaign (not just the one discover() call) uses the
+    # exact model the human picked -- llm.py resolves which provider hosts it.
     model: str | None = None
 
 
@@ -156,7 +163,7 @@ class SeamOut(BaseModel):
     testCommand: str
     title: str | None = None
     plan: dict | None = None
-    provider: str | None = None
+    provider: str | None = None  # the model string chosen at seam creation (see SeamIn.model)
 
 
 class CampaignIn(BaseModel):
