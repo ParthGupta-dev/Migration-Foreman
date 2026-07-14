@@ -1,5 +1,20 @@
 import type { Metadata } from "next";
+import { Inter, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
+
+const inter = Inter({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-inter",
+  display: "swap",
+});
+
+const plexMono = IBM_Plex_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  variable: "--font-plex-mono",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "Migration Foreman",
@@ -12,17 +27,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body>
-        <div className="min-h-screen flex flex-col">
-          <header className="border-b border-slate-800 px-6 py-4">
-            <h1 className="text-lg font-semibold tracking-tight">
-              Migration Foreman
-            </h1>
-          </header>
-          <main className="flex-1 px-6 py-6">{children}</main>
-        </div>
-      </body>
+    <html lang="en" className={`${inter.variable} ${plexMono.variable}`}>
+      <body>{children}</body>
     </html>
   );
 }

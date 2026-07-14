@@ -139,14 +139,14 @@ Each phase = one reviewable PR on `redesign/control-room`. Phases 1–7 are
 frontend-only. Phase 8 and 9 touch the backend and are **gated on team approval**.
 
 ### Phase 1 — Demolition + scaffold + tokens
-- [ ] Delete the old app: everything under `frontend/` except the ported files listed in §1 (stash `lib/`, `hooks/useCampaignSocket.ts`, `utils/` aside, wipe, restore)
-- [ ] Fresh Next.js 14 App Router scaffold in `frontend/` — same `package.json` name kept or fixed to `frontend` (flag the rename in the PR), same scripts, so `docker-compose.yml` needs zero changes
-- [ ] `tailwind.config.ts` with `theme.extend.colors.foreman.*` exactly matching `design/mocks/foreman.css` (§3 of FRONTEND_REDESIGN.md); no default slate/blue usage anywhere
-- [ ] Inter (400–700) + IBM Plex Mono (400/500) via `next/font/google`; `tabular-nums` utility; 12px card / 8px control radii; the one card shadow token; global 2px `link`-blue focus rings; `prefers-reduced-motion` base rules
-- [ ] Port `lib/api.ts`, `lib/types.ts`, `lib/config.ts`, `lib/seamQueue.ts`, `hooks/useCampaignSocket.ts`, `utils/formatUnitStatus.ts`, `utils/matchGlob.ts`, `utils/renderMarkdown.ts` unchanged; `npm run build` passes with a placeholder page
-- [ ] New `lib/batches.ts` (unit → batch derivation + category palette) with the sort order from §2
-- [ ] New `lib/campaignStore.ts` (§3) with versioned localStorage schema
-- [ ] Verify: container comes up, `/` renders the placeholder, `GET /health` round-trip works from the browser
+- [x] Delete the old app: everything under `frontend/` except the ported files listed in §1 (old wizard `app/page.tsx`/`layout.tsx`/`globals.css`, all 14 old dashboard `components/*.tsx`, and the stale `app/campaign/[campaignId]/{page,summary/page}.tsx` routes)
+- [x] Fresh Next.js 14 App Router scaffold in `frontend/` — `package.json` name fixed `frontend_2` → `frontend` (flagged here per the plan; harmless, `docker-compose.yml` bind-mounts by path not name, zero compose changes needed)
+- [x] `tailwind.config.ts` with `theme.extend.colors.foreman.*` exactly matching `design/mocks/foreman.css` (the live/approved token values — note FRONTEND_REDESIGN.md §3's prose table is stale from an earlier revision and was not used); no default slate/blue usage anywhere
+- [x] Inter (400–700) + IBM Plex Mono (400/500) via `next/font/google`; `tabular-nums` utility; 12px card / 8px control radii; the one card shadow token; global 2px `link`-blue focus rings; `prefers-reduced-motion` base rules
+- [x] Port `lib/api.ts`, `lib/types.ts`, `lib/config.ts`, `lib/seamQueue.ts`, `hooks/useCampaignSocket.ts`, `utils/formatUnitStatus.ts`, `utils/matchGlob.ts`, `utils/renderMarkdown.ts` unchanged; `npm run build` passes with a placeholder page (also added missing `.eslintrc.json` — `next lint` had no config to run against; `npm run lint` is clean)
+- [x] New `lib/batches.ts` (unit → batch derivation + category palette) with the sort order from §2
+- [x] New `lib/campaignStore.ts` (§3) with versioned localStorage schema
+- [x] Verify: container comes up, `/` renders the placeholder, `GET /health` round-trip works from the browser (MOCK_CODEX=1 docker compose run — confirmed `backend: ok · llm: mock` rendered live, screenshot taken, no console errors)
 
 ### Phase 2 — Landing page (`/`)
 - [ ] Hero + centered composer per `landing.html`: greeting, textarea, model indicator (from `/health`), near-black round submit
