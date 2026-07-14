@@ -57,6 +57,14 @@ async def execute(query: str, *args: Any) -> str:
         return await conn.execute(query, *args)
 
 
+def parse_jsonb(value: Any) -> Any:
+    """asyncpg returns jsonb columns as raw text (no codec registered), so
+    every read site that wants a dict/list back needs this."""
+    if isinstance(value, str):
+        return json.loads(value)
+    return value
+
+
 async def record_unit_event(
     unit_id: str, event_type: str, message: str, metadata: dict | None = None
 ) -> None:

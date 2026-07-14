@@ -19,12 +19,24 @@ CREATE TABLE IF NOT EXISTS seams (
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- G2 (frontend_refactor.md Phase 8): the planning session that produced this
+-- seam (intent, mode, model, grounding stats, discovery reasoning...) is
+-- opaque to the backend -- the client owns the shape, we just persist and
+-- return it so a reloaded/foreign browser can render the Plan page from the
+-- server instead of localStorage.
+ALTER TABLE seams ADD COLUMN IF NOT EXISTS title TEXT;
+ALTER TABLE seams ADD COLUMN IF NOT EXISTS plan JSONB;
+
 CREATE TABLE IF NOT EXISTS campaigns (
   campaign_id  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   seam_id      UUID NOT NULL REFERENCES seams(seam_id),
   status       TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed')) DEFAULT 'running',
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- G5: set by the engine when the campaign reaches either terminal status, so
+-- true duration is computable server-side instead of from client clocks.
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS units (
   unit_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -62,6 +74,22 @@ CREATE TABLE IF NOT EXISTS unit_events (
 CREATE INDEX IF NOT EXISTS idx_units_campaign_id ON units(campaign_id);
 CREATE INDEX IF NOT EXISTS idx_unit_events_unit_id ON unit_events(unit_id);
 CREATE INDEX IF NOT EXISTS idx_seams_repo_id ON seams(repo_id);
+
+-- Phase 9 (frontend_refactor.md): conversational chat, scoped to a campaign.
+-- One row per turn (both the human message and the foreman reply) so the
+-- full transcript can be replayed on reload; unit_ref carries an optional
+-- batch/unit reference (e.g. a failed unit's id) the message discusses.
+CREATE TABLE IF NOT EXISTS chat_messages (
+  message_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  campaign_id  UUID NOT NULL REFERENCES campaigns(campaign_id) ON DELETE CASCADE,
+  role         TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
+  content      TEXT NOT NULL,
+  unit_ref     UUID REFERENCES units(unit_id),
+  action       TEXT,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_messages_campaign_id ON chat_messages(campaign_id);
 
 -- GitHub OAuth sessions (auth/session.py). session_id is the opaque value
 -- carried in the mf_session HttpOnly cookie; access/refresh tokens are

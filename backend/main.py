@@ -4,7 +4,9 @@ REST: POST /repo, GET /repo/{id}/candidates, POST /repo/{id}/seam,
       POST /campaign, GET /campaign/{id}, POST /campaign/{id}/finalize
 WS:   /ws/campaign/{id} (server -> client events only)
 
-Flagged contract additions (need team approval, section 13):
+Flagged contract additions (section 13 sign-off recorded; see
+frontend_refactor.md for the frontend redesign that motivated the Phase 8/9
+items):
 - GET /repo/{id}/graph serves dependency-graph nodes/edges for the frontend's
   React Flow views; section 7 defines the graph visually but gives it no
   endpoint.
@@ -12,9 +14,17 @@ Flagged contract additions (need team approval, section 13):
   Discovery and Autonomous modes): a natural-language objective goes in,
   grounded candidate seams come out, and human-confirmed seams feed the
   existing seam -> campaign pipeline.
+- Phase 8 (G1-G5): seams.title/plan persisted by POST /repo/{id}/seam and
+  returned via GET /campaign/{id} (which now also embeds repoId + the full
+  seam); GET /campaigns (server-backed history list); GET /campaign/{id}/
+  events (unit_events read API); campaigns.completed_at set by the engine.
+- Phase 9: conversational chat scoped to a campaign (chat.py) --
+  GET/POST /campaign/{id}/chat and the one re-dispatch action, POST
+  /campaign/{id}/chat/retry-unit/{unitId}.
 """
 
 import asyncio
+import json
 import logging
 import uuid
 
@@ -24,6 +34,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
+import chat
 import config
 import db
 import llm
@@ -334,9 +345,10 @@ async def create_seam(repo_id: str, body: models.SeamIn) -> models.SeamOut:
             )
 
     seam_row = await db.fetchrow(
-        "INSERT INTO seams (repo_id, scope_globs, before_pattern, after_pattern, invariants, test_command) "
-        "VALUES ($1, $2, $3, $4, $5, $6) RETURNING seam_id",
+        "INSERT INTO seams (repo_id, scope_globs, before_pattern, after_pattern, invariants, "
+        "test_command, title, plan) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb) RETURNING seam_id",
         repo_id, scope_globs, before, after, invariants, test_command,
+        body.title, json.dumps(body.plan) if body.plan is not None else None,
     )
     return models.SeamOut(
         seamId=str(seam_row["seam_id"]),
@@ -345,10 +357,51 @@ async def create_seam(repo_id: str, body: models.SeamIn) -> models.SeamOut:
         afterPattern=after,
         invariants=invariants,
         testCommand=test_command,
+        title=body.title,
+        plan=body.plan,
     )
 
 
 # --- Campaigns ----------------------------------------------------------
+
+
+@app.get("/campaigns", response_model=models.CampaignsListOut)
+async def list_campaigns() -> models.CampaignsListOut:
+    """G3 (frontend_refactor.md Phase 8) — server-backed campaign history for
+    the sidebar widget, replacing the per-browser localStorage list."""
+    rows = await db.fetch(
+        """
+        SELECT
+            c.campaign_id, c.status, c.created_at, c.completed_at,
+            s.repo_id, s.title AS seam_title, r.repo_url,
+            COUNT(u.unit_id) AS unit_count,
+            COUNT(u.unit_id) FILTER (WHERE u.status = 'passed') AS accepted_units,
+            COUNT(u.unit_id) FILTER (WHERE u.status = 'escalated') AS escalated_units
+        FROM campaigns c
+        JOIN seams s ON s.seam_id = c.seam_id
+        JOIN repos r ON r.repo_id = s.repo_id
+        LEFT JOIN units u ON u.campaign_id = c.campaign_id
+        GROUP BY c.campaign_id, s.repo_id, s.title, r.repo_url
+        ORDER BY c.created_at DESC
+        """
+    )
+    return models.CampaignsListOut(
+        campaigns=[
+            models.CampaignSummaryOut(
+                campaignId=str(row["campaign_id"]),
+                title=row["seam_title"],
+                status=row["status"],
+                repoId=str(row["repo_id"]),
+                repoUrl=row["repo_url"],
+                createdAt=row["created_at"].isoformat(),
+                completedAt=row["completed_at"].isoformat() if row["completed_at"] else None,
+                unitCount=row["unit_count"],
+                acceptedUnits=row["accepted_units"],
+                escalatedUnits=row["escalated_units"],
+            )
+            for row in rows
+        ]
+    )
 
 
 @app.post("/campaign", response_model=models.CampaignCreatedOut)
@@ -410,6 +463,19 @@ async def create_campaign(body: models.CampaignIn) -> models.CampaignCreatedOut:
     )
 
 
+def _seam_out(seam_row) -> models.SeamOut:
+    return models.SeamOut(
+        seamId=str(seam_row["seam_id"]),
+        scopeGlobs=list(seam_row["scope_globs"]),
+        beforePattern=seam_row["before_pattern"],
+        afterPattern=seam_row["after_pattern"],
+        invariants=list(seam_row["invariants"] or []),
+        testCommand=seam_row["test_command"],
+        title=seam_row["title"],
+        plan=db.parse_jsonb(seam_row["plan"]),
+    )
+
+
 @app.get("/campaign/{campaign_id}", response_model=models.CampaignOut)
 async def get_campaign(campaign_id: str) -> models.CampaignOut:
     campaign_id = _require_uuid(campaign_id, "campaign_not_found")
@@ -419,7 +485,10 @@ async def get_campaign(campaign_id: str) -> models.CampaignOut:
     units = await db.fetch(
         "SELECT * FROM units WHERE campaign_id = $1 ORDER BY created_at", campaign_id
     )
-    seam = await db.fetchrow("SELECT test_command FROM seams WHERE seam_id = $1", campaign["seam_id"])
+    # G1: the full seam row (not just test_command) plus its repo_id, so a
+    # reloaded/foreign browser can reach the graph and render the Plan page
+    # from the server instead of localStorage.
+    seam = await db.fetchrow("SELECT * FROM seams WHERE seam_id = $1", campaign["seam_id"])
     return models.CampaignOut(
         campaignId=campaign_id,
         seamId=str(campaign["seam_id"]),
@@ -436,6 +505,60 @@ async def get_campaign(campaign_id: str) -> models.CampaignOut:
             )
             for unit in units
         ],
+        repoId=str(seam["repo_id"]) if seam else "",
+        seam=_seam_out(seam) if seam else models.SeamOut(
+            seamId=str(campaign["seam_id"]), scopeGlobs=[], beforePattern="",
+            afterPattern="", invariants=[], testCommand="",
+        ),
+        createdAt=campaign["created_at"].isoformat(),
+        completedAt=campaign["completed_at"].isoformat() if campaign["completed_at"] else None,
+    )
+
+
+_EVENTS_DEFAULT_LIMIT = 500
+_EVENTS_MAX_LIMIT = 2000
+
+
+@app.get("/campaign/{campaign_id}/events", response_model=models.CampaignEventsOut)
+async def get_campaign_events(
+    campaign_id: str, limit: int = _EVENTS_DEFAULT_LIMIT, offset: int = 0
+) -> models.CampaignEventsOut:
+    """G4 (frontend_refactor.md Phase 8) — unit_events read API, ordered
+    oldest-first, so Log backfill and Overview replay can use the real
+    history instead of a synthesized approximation from final unit states."""
+    campaign_id = _require_uuid(campaign_id, "campaign_not_found")
+    campaign = await db.fetchrow("SELECT campaign_id FROM campaigns WHERE campaign_id = $1", campaign_id)
+    if campaign is None:
+        raise ApiError(404, "campaign_not_found", f"No campaign with id {campaign_id}")
+
+    limit = max(1, min(limit, _EVENTS_MAX_LIMIT))
+    offset = max(0, offset)
+    rows = await db.fetch(
+        """
+        SELECT e.id, e.unit_id, u.scope_glob, e.event_type, e.message, e.metadata, e.created_at
+        FROM unit_events e
+        JOIN units u ON u.unit_id = e.unit_id
+        WHERE u.campaign_id = $1
+        ORDER BY e.created_at ASC, e.id ASC
+        LIMIT $2 OFFSET $3
+        """,
+        campaign_id, limit, offset,
+    )
+    return models.CampaignEventsOut(
+        campaignId=campaign_id,
+        events=[
+            models.UnitEventOut(
+                eventId=str(row["id"]),
+                unitId=str(row["unit_id"]),
+                scopeGlob=row["scope_glob"],
+                eventType=row["event_type"],
+                message=row["message"],
+                metadata=db.parse_jsonb(row["metadata"]),
+                createdAt=row["created_at"].isoformat(),
+            )
+            for row in rows
+        ],
+        nextOffset=offset + limit if len(rows) == limit else None,
     )
 
 
@@ -587,6 +710,51 @@ async def finalize_campaign(
         prUrl=pr_url,
         acceptedUnits=len(ctx["accepted"]),
         escalatedUnits=len(ctx["escalated"]),
+    )
+
+
+# --- Chat (Phase 9, frontend_refactor.md) --------------------------------
+
+
+@app.get("/campaign/{campaign_id}/chat", response_model=models.ChatHistoryOut)
+async def get_campaign_chat(campaign_id: str) -> models.ChatHistoryOut:
+    campaign_id = _require_uuid(campaign_id, "campaign_not_found")
+    campaign = await db.fetchrow("SELECT campaign_id FROM campaigns WHERE campaign_id = $1", campaign_id)
+    if campaign is None:
+        raise ApiError(404, "campaign_not_found", f"No campaign with id {campaign_id}")
+    return models.ChatHistoryOut(campaignId=campaign_id, messages=await chat.get_history(campaign_id))
+
+
+@app.post("/campaign/{campaign_id}/chat", response_model=models.ChatTurnOut)
+async def post_campaign_chat(campaign_id: str, body: models.ChatMessageIn) -> models.ChatTurnOut:
+    campaign_id = _require_uuid(campaign_id, "campaign_not_found")
+    try:
+        user_message, assistant_message = await chat.reply(campaign_id, body.message, body.unitRef)
+    except chat.ChatError as exc:
+        raise ApiError(502, "chat_reply_failed", str(exc))
+    return models.ChatTurnOut(
+        campaignId=campaign_id, userMessage=user_message, assistantMessage=assistant_message
+    )
+
+
+@app.post("/campaign/{campaign_id}/chat/retry-unit/{unit_id}", response_model=models.ChatRetryUnitOut)
+async def retry_unit_from_chat(campaign_id: str, unit_id: str) -> models.ChatRetryUnitOut:
+    """The Phase 9 re-dispatch action: retry one escalated/blocked/
+    generation_failed/system_error unit through the same verification gate
+    the campaign run used, triggered explicitly from the chat UI."""
+    campaign_id = _require_uuid(campaign_id, "campaign_not_found")
+    unit_id = _require_uuid(unit_id, "unit_not_found")
+    unit_row, system_message = await chat.retry_unit(campaign_id, unit_id)
+    return models.ChatRetryUnitOut(
+        unit=models.UnitOut(
+            unitId=str(unit_row["unit_id"]),
+            scopeGlob=unit_row["scope_glob"],
+            status=unit_row["status"],
+            attempt=unit_row["attempt"],
+            diff=unit_row["diff"],
+            failureLog=unit_row["failure_log"],
+        ),
+        systemMessage=system_message,
     )
 
 
