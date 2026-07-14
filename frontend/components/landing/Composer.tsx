@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { ArrowUp } from "lucide-react";
 import ModeMenu, { MODES, type ComposerMode } from "./ModeMenu";
 import ModelMenu from "./ModelMenu";
@@ -34,6 +35,15 @@ export default function Composer({
   onSelectModel: (name: string) => void;
   onSubmit: () => void;
 }) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [intent]);
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -49,13 +59,14 @@ export default function Composer({
       style={{ boxShadow: "0 1px 2px rgba(16,24,40,0.05), 0 8px 24px rgba(16,24,40,0.06)" }}
     >
       <textarea
+        ref={textareaRef}
         rows={2}
         disabled={disabled}
         value={intent}
         onChange={(e) => onIntentChange(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder={disabled ? "Select a codebase to begin" : PLACEHOLDERS[mode]}
-        className="w-full resize-none border-none bg-transparent px-1 pb-3 pt-1 text-[15px] leading-relaxed text-foreman-ink placeholder:text-foreman-faint focus:outline-none"
+        className="max-h-[160px] min-h-[52px] w-full resize-none overflow-y-auto border-none bg-transparent px-1 pb-3 pt-1 text-[15px] leading-relaxed text-foreman-ink placeholder:text-foreman-faint focus:outline-none"
       />
       <div className="flex items-center gap-2 border-t border-foreman-line pt-2.5">
         <ModeMenu mode={mode} onChange={onModeChange} />
