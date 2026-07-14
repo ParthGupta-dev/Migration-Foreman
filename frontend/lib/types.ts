@@ -345,17 +345,25 @@ export interface ApiErrorShape {
   message: string;
 }
 
-// GET /llm/providers — every configured provider (API key set), so the
-// landing composer's model selector can offer a real choice instead of a
-// decorative pill. Under MOCK_CODEX this is always a single "mock" entry.
+// GET /llm/providers — every selectable model, grouped by provider (API key
+// set), so the landing composer's model selector can offer a real choice —
+// with a sense of relative quota/cost via `usage` — instead of a decorative
+// pill. Under MOCK_CODEX this is always a single "mock" entry.
+export type LlmUsage = "low" | "mid" | "high";
+
+export interface LlmModel {
+  model: string;
+  usage: LlmUsage;
+}
+
 export interface LlmProvider {
   name: string;
-  model: string;
+  models: LlmModel[];
 }
 
 export interface LlmProvidersResponse {
   providers: LlmProvider[];
-  active: string | null;
+  active: string | null; // the currently-active MODEL string (or "mock")
 }
 
 // --- WebSocket contract: /ws/campaign/{campaignId}, server -> client only ---

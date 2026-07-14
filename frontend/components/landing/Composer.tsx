@@ -32,7 +32,7 @@ export default function Composer({
   submitting: boolean;
   providers: LlmProvider[];
   selectedModel: string | null;
-  onSelectModel: (name: string) => void;
+  onSelectModel: (model: string) => void;
   onSubmit: () => void;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);

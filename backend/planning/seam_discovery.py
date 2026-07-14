@@ -134,7 +134,7 @@ def _module_groups(repo_path: Path) -> list[dict]:
     return modules[:_MAX_MODULE_GROUPS]
 
 
-def discover_seams(repo_path: Path, objective: str, provider_name: str | None = None) -> dict:
+def discover_seams(repo_path: Path, objective: str, model: str | None = None) -> dict:
     """Analyze the repo, propose candidate ideas, ground the best ones.
 
     Returns the full discovery payload: repoSummary, grounded seams in
@@ -146,16 +146,18 @@ def discover_seams(repo_path: Path, objective: str, provider_name: str | None = 
     inferred fresh from the clone every time, and .migration-foreman.json
     (if present) only ever supplies an optional blacklist override below.
 
-    `provider_name`, when given, overrides the env-selected LLM provider for
-    this call only (the frontend's model selector — see GET /llm/providers).
-    Ignored under MOCK_CODEX, which never reaches llm.py at all.
+    `model`, when given, is a specific model string from the frontend's
+    model selector (GET /llm/providers, e.g. "llama-3.1-8b-instant") that
+    overrides the env-selected default for this call only; llm.py resolves
+    which provider hosts it. Ignored under MOCK_CODEX, which never reaches
+    llm.py at all.
     """
     summary = analyze_repository(repo_path)
     profile = profiler.build_profile(repo_path)
     modules = _module_groups(repo_path)
     extra_blacklist = (load_repo_config(repo_path) or {}).get("blacklist")
 
-    ideas = _propose_ideas(repo_path, objective, summary, profile, modules, provider_name)
+    ideas = _propose_ideas(repo_path, objective, summary, profile, modules, model)
     if not ideas:
         raise DiscoveryError("Repository analysis produced no migration opportunities to propose")
 
@@ -167,7 +169,7 @@ def discover_seams(repo_path: Path, objective: str, provider_name: str | None = 
     with ThreadPoolExecutor(max_workers=min(_GROUNDING_WORKERS, len(ideas))) as pool:
         futures = {
             pool.submit(
-                _ground_one_idea, repo_path, idea, objective, provider_name, extra_blacklist
+                _ground_one_idea, repo_path, idea, objective, model, extra_blacklist
             ): index
             for index, idea in enumerate(ideas)
         }
@@ -237,7 +239,7 @@ def discover_seams(repo_path: Path, objective: str, provider_name: str | None = 
 
 def _ground_one_idea(
     repo_path: Path, idea: dict, objective: str,
-    provider_name: str | None, extra_blacklist: list[str] | None,
+    model: str | None, extra_blacklist: list[str] | None,
 ) -> tuple[dict | None, str | None]:
     """Stage 6/7 for one idea: generate a concrete pattern from its real
     files, validate it, and replan (regenerate with the failure reason) on a
@@ -248,7 +250,7 @@ def _ground_one_idea(
     failure_reason: str | None = None
     for attempt in range(_MAX_GROUNDING_ATTEMPTS):
         try:
-            proposal = _generate_pattern(repo_path, idea, objective, provider_name, failure_reason)
+            proposal = _generate_pattern(repo_path, idea, objective, model, failure_reason)
         except DiscoveryError as exc:
             failure_reason = str(exc)
             logger.info("Idea %r pattern generation attempt %d failed: %s", title, attempt + 1, exc)
@@ -341,7 +343,7 @@ _IDEA_GENERATION_ATTEMPTS = 2
 
 def _propose_ideas(
     repo_path: Path, objective: str, summary: dict, profile: dict,
-    modules: list[dict], provider_name: str | None = None,
+    modules: list[dict], model: str | None = None,
 ) -> list[dict]:
     if config.MOCK_CODEX:
         return _mock_ideas(repo_path, objective, modules)
@@ -357,7 +359,7 @@ def _propose_ideas(
 
     for attempt in range(_IDEA_GENERATION_ATTEMPTS):
         try:
-            payload = llm.complete_json(prompt, provider_name=provider_name)
+            payload = llm.complete_json(prompt, model=model)
         except llm.LlmError as exc:
             logger.warning("Idea generation invocation failed (attempt %d): %s", attempt + 1, exc)
             continue
@@ -498,7 +500,7 @@ def _gather_module_excerpts(repo_path: Path, module_names: list[str], summary: d
 
 def _generate_pattern(
     repo_path: Path, idea: dict, objective: str,
-    provider_name: str | None = None, failure_reason: str | None = None,
+    model: str | None = None, failure_reason: str | None = None,
 ) -> dict:
     if config.MOCK_CODEX:
         return _mock_pattern(repo_path, idea)
@@ -518,7 +520,7 @@ def _generate_pattern(
         retry_note=retry_note,
     )
     try:
-        proposal = llm.complete_json(prompt, provider_name=provider_name)
+        proposal = llm.complete_json(prompt, model=model)
     except llm.LlmError as exc:
         raise DiscoveryError(f"Pattern generation invocation failed: {exc}") from exc
     if not isinstance(proposal, dict):

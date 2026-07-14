@@ -130,22 +130,32 @@ async def health() -> dict[str, str]:
 
 
 # FLAGGED contract addition (frontend Phase 2, model selector): read-only,
-# additive, no schema change — lists every LLM provider with an API key set
-# so the landing page composer can offer a real choice instead of a
+# additive, no schema change — lists every selectable model, grouped by
+# provider, for every provider with an API key set, plus a static "usage"
+# tier per model (llm._MODEL_CATALOG) so the landing page composer can offer
+# a real choice — with a sense of relative quota/cost — instead of a
 # decorative pill. Under MOCK_CODEX there is nothing to choose between.
 @app.get("/llm/providers", response_model=models.LlmProvidersOut)
 async def llm_providers() -> models.LlmProvidersOut:
     if config.MOCK_CODEX:
         return models.LlmProvidersOut(
-            providers=[models.LlmProviderOut(name="mock", model="mock")], active="mock"
+            providers=[models.LlmProviderOut(name="mock", models=[models.LlmModelOut(model="mock", usage="low")])],
+            active="mock",
         )
-    providers = llm.list_providers()
+    grouped: dict[str, list[models.LlmModelOut]] = {}
+    for entry in llm.list_models():
+        grouped.setdefault(entry.provider, []).append(
+            models.LlmModelOut(model=entry.model, usage=entry.usage)
+        )
     try:
-        active = llm.active_provider().name
+        active = llm.active_provider().model
     except llm.LlmError:
         active = None
     return models.LlmProvidersOut(
-        providers=[models.LlmProviderOut(name=p.name, model=p.model) for p in providers],
+        providers=[
+            models.LlmProviderOut(name=name, models=model_list)
+            for name, model_list in grouped.items()
+        ],
         active=active,
     )
 
