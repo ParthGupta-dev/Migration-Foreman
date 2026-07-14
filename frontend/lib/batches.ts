@@ -14,8 +14,9 @@ export interface Batch {
 }
 
 // Fixed, deterministic category palette — never a status color (those stay
-// reserved for lamps/pills/bars per FRONTEND_REDESIGN.md §3).
-const CATEGORY_PALETTE = [
+// reserved for lamps/pills/bars per FRONTEND_REDESIGN.md §3). Exported so the
+// Plan legend and Overview scene draw from the same list.
+export const CATEGORY_PALETTE = [
   "#B8894F", // amber
   "#7C9463", // sage
   "#8A8072", // taupe
@@ -83,6 +84,54 @@ export function deriveBatches(units: Unit[]): Batch[] {
 
 export function batchForUnit(batches: Batch[], unitId: string): Batch | undefined {
   return batches.find((batch) => batch.units.some((unit) => unit.unitId === unitId));
+}
+
+// A batch derived from raw scope globs (the Plan page, before any units exist).
+// Same id/colour assignment as deriveBatches — labels sorted, B-01.. in order,
+// palette cycled — so a batch keeps one identity/colour across every page.
+export interface GlobBatch {
+  id: string;
+  label: string;
+  color: string;
+  globs: string[];
+}
+
+export function deriveGlobBatches(scopeGlobs: string[]): GlobBatch[] {
+  const groups = new Map<string, string[]>();
+  for (const glob of scopeGlobs) {
+    const label = topLevelDir(glob);
+    const group = groups.get(label);
+    if (group) group.push(glob);
+    else groups.set(label, [glob]);
+  }
+  return [...groups.keys()]
+    .sort((a, b) => a.localeCompare(b))
+    .map((label, index) => ({
+      id: `B-${String(index + 1).padStart(2, "0")}`,
+      label,
+      color: CATEGORY_PALETTE[index % CATEGORY_PALETTE.length],
+      globs: groups.get(label)!.sort((a, b) => a.localeCompare(b)),
+    }));
+}
+
+// Per-batch outcome tally for the Summary bars (mock: summary.html `.obar`).
+export interface BatchOutcome {
+  accepted: number;
+  escalated: number;
+  blocked: number;
+  running: number;
+  total: number;
+}
+
+export function batchOutcome(units: Unit[]): BatchOutcome {
+  const total = units.length;
+  const accepted = units.filter((u) => u.status === "passed").length;
+  const escalated = units.filter((u) => u.status === "escalated").length;
+  const blocked = units.filter((u) => isBlockedStatus(u.status)).length;
+  const running = units.filter(
+    (u) => u.status === "running" || u.status === "retrying" || u.status === "pending" || u.status === "failed"
+  ).length;
+  return { accepted, escalated, blocked, running, total };
 }
 
 // --- Batch-level status (Batches page, mock: batches.html) ---

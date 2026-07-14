@@ -4,7 +4,12 @@ import type {
   ApplyResult,
   Campaign,
   CampaignCreated,
+  CampaignEventsResponse,
+  CampaignsResponse,
   CandidatesResponse,
+  ChatHistory,
+  ChatPostResponse,
+  ChatRetryResponse,
   Discovery,
   FinalizeResult,
   GithubBranchesResponse,
@@ -82,6 +87,31 @@ export const api = {
 
   getCampaign: (campaignId: string) =>
     request<Campaign>("GET", `/campaign/${campaignId}`),
+
+  // Server-backed campaign history (gap G3 now live) — powers a real,
+  // cross-browser sidebar history widget.
+  getCampaigns: () => request<CampaignsResponse>("GET", "/campaigns"),
+
+  // Real unit_events history (gap G4 now live), oldest-first + paginated —
+  // the Log page's backfill and the Overview replay build on this instead of
+  // synthesising a timeline from final unit states.
+  getCampaignEvents: (campaignId: string, limit = 500, offset = 0) =>
+    request<CampaignEventsResponse>(
+      "GET",
+      `/campaign/${campaignId}/events?limit=${limit}&offset=${offset}`
+    ),
+
+  // Conversational chat (Phase 9 backend now live). getChat returns history;
+  // postChat persists both turns and returns a real reply; retryUnit re-runs
+  // verification for one escalated/blocked/failed unit for real.
+  getChat: (campaignId: string) =>
+    request<ChatHistory>("GET", `/campaign/${campaignId}/chat`),
+
+  postChat: (campaignId: string, message: string, unitRef?: string | null) =>
+    request<ChatPostResponse>("POST", `/campaign/${campaignId}/chat`, unitRef ? { message, unitRef } : { message }),
+
+  retryUnit: (campaignId: string, unitId: string) =>
+    request<ChatRetryResponse>("POST", `/campaign/${campaignId}/chat/retry-unit/${unitId}`),
 
   getUnitPreview: (campaignId: string, unitId: string) =>
     request<UnitPreview>("GET", `/campaign/${campaignId}/unit/${unitId}/preview`),

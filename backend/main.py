@@ -185,10 +185,18 @@ async def create_repo(body: models.RepoIn, request: Request) -> models.RepoOut:
         last_exc: Exception | None = None
         for attempt in range(1, max_attempts + 1):
             try:
+                # GitPython treats -c as an "unsafe option" it refuses to pass
+                # through by default (regardless of source trust) -- must be
+                # explicitly allowed or clone_from raises before git even runs.
                 if body.branch:
-                    GitRepo.clone_from(clone_url, dest, branch=body.branch, multi_options=opts)
+                    GitRepo.clone_from(
+                        clone_url, dest, branch=body.branch,
+                        multi_options=opts, allow_unsafe_options=True,
+                    )
                 else:
-                    GitRepo.clone_from(clone_url, dest, multi_options=opts)
+                    GitRepo.clone_from(
+                        clone_url, dest, multi_options=opts, allow_unsafe_options=True,
+                    )
                 return
             except GitCommandError as exc:
                 last_exc = exc
