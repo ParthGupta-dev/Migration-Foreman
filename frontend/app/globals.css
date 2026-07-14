@@ -8,18 +8,58 @@ body {
 }
 
 body {
-  @apply bg-slate-950 text-slate-100;
+  @apply bg-foreman-bg text-foreman-ink font-ui;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+a {
+  @apply text-foreman-link;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+:focus-visible {
+  outline: 2px solid theme("colors.foreman.link");
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+input:focus,
+textarea:focus,
+select:focus {
+  outline: 2px solid theme("colors.foreman.link");
+  outline-offset: 0;
 }
 
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
-
-::-webkit-scrollbar-thumb {
-  @apply bg-slate-700 rounded-full;
-}
-
 ::-webkit-scrollbar-track {
-  @apply bg-slate-900;
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #d6c9b5;
+  border: 2px solid theme("colors.foreman.bg");
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-foreman-faint;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }
