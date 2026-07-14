@@ -119,7 +119,7 @@ def analyze_repository(repo_path: Path) -> dict:
     }
 
 
-def discover_seams(repo_path: Path, objective: str) -> dict:
+def discover_seams(repo_path: Path, objective: str, provider_name: str | None = None) -> dict:
     """Analyze the repo, propose candidate seams, ground each one.
 
     Returns the full discovery payload: repoSummary, grounded seams in
@@ -130,10 +130,14 @@ def discover_seams(repo_path: Path, objective: str) -> dict:
     profile (discovery/profiler.py) that grounds the model's proposals is
     inferred fresh from the clone every time, and .migration-foreman.json
     (if present) only ever supplies an optional blacklist override below.
+
+    `provider_name`, when given, overrides the env-selected LLM provider for
+    this call only (the frontend's model selector — see GET /llm/providers).
+    Ignored under MOCK_CODEX, which never reaches llm.py at all.
     """
     summary = analyze_repository(repo_path)
     profile = profiler.build_profile(repo_path)
-    proposals = _generate(repo_path, objective, summary, profile)
+    proposals = _generate(repo_path, objective, summary, profile, provider_name)
     extra_blacklist = (load_repo_config(repo_path) or {}).get("blacklist")
 
     seams: list[dict] = []
@@ -203,7 +207,9 @@ def _format_profile(profile: dict) -> str:
     return "\n".join(lines) if lines else "- (no strong signals detected; treat as a minimal/greenfield repo)"
 
 
-def _generate(repo_path: Path, objective: str, summary: dict, profile: dict) -> list[dict]:
+def _generate(
+    repo_path: Path, objective: str, summary: dict, profile: dict, provider_name: str | None = None
+) -> list[dict]:
     if config.MOCK_CODEX:
         # Offline path: the single-seam mock planner becomes a one-seam
         # discovery so the approval flow still exercises end to end.
@@ -233,7 +239,7 @@ def _generate(repo_path: Path, objective: str, summary: dict, profile: dict) -> 
     try:
         # complete_json handles JSON mode, lenient extraction, and one
         # valid-JSON-only retry before giving up (see llm.complete_json).
-        payload = llm.complete_json(prompt)
+        payload = llm.complete_json(prompt, provider_name=provider_name)
     except llm.LlmError as exc:
         raise DiscoveryError(f"Seam discovery invocation failed: {exc}") from exc
 

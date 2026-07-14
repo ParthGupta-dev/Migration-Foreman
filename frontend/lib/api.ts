@@ -12,6 +12,7 @@ import type {
   GithubStatus,
   GraphResponse,
   HealthResponse,
+  LlmProvidersResponse,
   Repo,
   Seam,
   SeamRequest,
@@ -68,8 +69,10 @@ export const api = {
   getGraph: (repoId: string) =>
     request<GraphResponse>("GET", `/repo/${repoId}/graph`),
 
-  discoverSeams: (repoId: string, objective: string) =>
-    request<Discovery>("POST", `/repo/${repoId}/discover`, { objective }),
+  discoverSeams: (repoId: string, objective: string, model?: string | null) =>
+    request<Discovery>("POST", `/repo/${repoId}/discover`, model ? { objective, model } : { objective }),
+
+  llmProviders: () => request<LlmProvidersResponse>("GET", "/llm/providers"),
 
   createSeam: (repoId: string, body: SeamRequest) =>
     request<Seam>("POST", `/repo/${repoId}/seam`, body),

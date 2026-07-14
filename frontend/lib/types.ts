@@ -258,6 +258,19 @@ export interface ApiErrorShape {
   message: string;
 }
 
+// GET /llm/providers — every configured provider (API key set), so the
+// landing composer's model selector can offer a real choice instead of a
+// decorative pill. Under MOCK_CODEX this is always a single "mock" entry.
+export interface LlmProvider {
+  name: string;
+  model: string;
+}
+
+export interface LlmProvidersResponse {
+  providers: LlmProvider[];
+  active: string | null;
+}
+
 // --- WebSocket contract: /ws/campaign/{campaignId}, server -> client only ---
 
 export interface CampaignStartedEvent {

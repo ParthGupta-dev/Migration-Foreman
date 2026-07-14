@@ -114,6 +114,27 @@ async def health() -> dict[str, str]:
         return {"status": "degraded", "db": "unavailable", "llm": llm.describe()}
 
 
+# FLAGGED contract addition (frontend Phase 2, model selector): read-only,
+# additive, no schema change — lists every LLM provider with an API key set
+# so the landing page composer can offer a real choice instead of a
+# decorative pill. Under MOCK_CODEX there is nothing to choose between.
+@app.get("/llm/providers", response_model=models.LlmProvidersOut)
+async def llm_providers() -> models.LlmProvidersOut:
+    if config.MOCK_CODEX:
+        return models.LlmProvidersOut(
+            providers=[models.LlmProviderOut(name="mock", model="mock")], active="mock"
+        )
+    providers = llm.list_providers()
+    try:
+        active = llm.active_provider().name
+    except llm.LlmError:
+        active = None
+    return models.LlmProvidersOut(
+        providers=[models.LlmProviderOut(name=p.name, model=p.model) for p in providers],
+        active=active,
+    )
+
+
 # --- Repo ingestion -----------------------------------------------------
 
 
@@ -137,14 +158,38 @@ async def create_repo(body: models.RepoIn, request: Request) -> models.RepoOut:
     clone_url = await github_service.authenticated_clone_url(session_id, body.repoUrl)
 
     # Clone synchronously: the contract has no repo polling endpoint, so the
-    # response must already carry the terminal ready/failed status.
+    # response must already carry the terminal ready/failed status. Retry a few
+    # times: this Docker Desktop / WSL2 host drops ~1 in 4 TCP connects to
+    # GitHub (packet loss on the host network path, not an IP/MTU issue — see
+    # the MTU note in docker-compose.yml), so a single attempt fails
+    # intermittently even when the repo URL and credentials are perfectly fine.
+    # HTTP/1.1 avoids the separate HTTP/2 mid-transfer stall on the same path.
     def clone() -> None:
+        import shutil
         from git import Repo as GitRepo
+        from git.exc import GitCommandError
 
-        if body.branch:
-            GitRepo.clone_from(clone_url, dest, branch=body.branch)
-        else:
-            GitRepo.clone_from(clone_url, dest)
+        max_attempts = 4
+        opts = ["-c", "http.version=HTTP/1.1"]
+        last_exc: Exception | None = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                if body.branch:
+                    GitRepo.clone_from(clone_url, dest, branch=body.branch, multi_options=opts)
+                else:
+                    GitRepo.clone_from(clone_url, dest, multi_options=opts)
+                return
+            except GitCommandError as exc:
+                last_exc = exc
+                logger.warning(
+                    "Repo %s clone attempt %d/%d failed: %s",
+                    repo_id, attempt, max_attempts, exc,
+                )
+                # A partial clone leaves a non-empty dest that the next attempt
+                # would refuse — clear it before retrying.
+                shutil.rmtree(dest, ignore_errors=True)
+        if last_exc is not None:
+            raise last_exc
 
     try:
         await asyncio.to_thread(clone)
@@ -258,7 +303,7 @@ async def discover_seams(repo_id: str, body: models.DiscoverIn) -> models.Discov
     repo_path = _repo_path(repo_id)
     try:
         discovery_result = await asyncio.to_thread(
-            seam_discovery.discover_seams, repo_path, body.objective
+            seam_discovery.discover_seams, repo_path, body.objective, body.model
         )
     except seam_discovery.DiscoveryError as exc:
         raise ApiError(502, "seam_discovery_failed", str(exc))

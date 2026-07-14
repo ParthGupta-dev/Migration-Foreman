@@ -60,8 +60,29 @@ def _known_providers() -> dict[str, Provider]:
     return providers
 
 
-def active_provider() -> Provider:
+def list_providers() -> list[Provider]:
+    """Every provider with an API key set — what GET /llm/providers offers
+    the frontend's model selector. Order matches the env-precedence order
+    (codex, groq, custom) so the first entry is the default/active one."""
+    return [p for p in _known_providers().values() if p.api_key]
+
+
+def active_provider(name: str | None = None) -> Provider:
+    """Resolve which provider serves a request.
+
+    `name`, when given, is an explicit caller override (e.g. the frontend's
+    model selector) — it must be one of list_providers()'s names. Without an
+    override, falls back to LLM_PROVIDER env or the codex/groq/custom
+    precedence, as before.
+    """
     providers = _known_providers()
+
+    if name:
+        provider = providers.get(name)
+        if provider is None:
+            raise LlmError(f"Unknown or unconfigured provider: {name!r}")
+        _check(provider)
+        return provider
 
     if config.LLM_PROVIDER:
         provider = providers.get(config.LLM_PROVIDER)
@@ -73,8 +94,8 @@ def active_provider() -> Provider:
         _check(provider)
         return provider
 
-    for name in providers:  # codex first, then groq, then custom
-        provider = providers[name]
+    for provider_name in providers:  # codex first, then groq, then custom
+        provider = providers[provider_name]
         if provider.api_key:
             _check(provider)
             return provider
@@ -102,15 +123,16 @@ def describe() -> str:
         return "unconfigured"
 
 
-def complete(prompt: str, json_mode: bool = False) -> str:
-    """One-shot completion via whichever provider the env selects.
+def complete(prompt: str, json_mode: bool = False, provider_name: str | None = None) -> str:
+    """One-shot completion via whichever provider the env selects (or the
+    caller's explicit `provider_name` override — see active_provider()).
 
     json_mode=True requests the provider's native structured-output mode
     (`response_format: json_object` on chat completions, the text format on
     the Responses API). Providers/models that reject the parameter fall back
     to a plain completion — callers still get text either way.
     """
-    provider = active_provider()
+    provider = active_provider(provider_name)
     try:
         from openai import OpenAI, RateLimitError
     except ImportError as exc:
@@ -220,7 +242,7 @@ def _extract_json(text: str):
     raise ValueError("no parseable JSON object found in model output")
 
 
-def complete_json(prompt: str):
+def complete_json(prompt: str, provider_name: str | None = None):
     """Completion that must yield JSON, robust to sloppy model output.
 
     Strategy: ask with the provider's JSON mode; parse leniently (fences and
@@ -232,7 +254,7 @@ def complete_json(prompt: str):
     last_error: Exception | None = None
     current_prompt = prompt
     for attempt in (1, 2):
-        text = complete(current_prompt, json_mode=True)
+        text = complete(current_prompt, json_mode=True, provider_name=provider_name)
         logger.debug("Raw model JSON output (attempt %d): %r", attempt, text)
         try:
             return _extract_json(text)

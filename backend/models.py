@@ -32,6 +32,19 @@ class CandidatesOut(BaseModel):
 
 class DiscoverIn(BaseModel):
     objective: str
+    # Optional override for the env-selected LLM provider — the frontend's
+    # model selector (GET /llm/providers). Ignored under MOCK_CODEX.
+    model: str | None = None
+
+
+class LlmProviderOut(BaseModel):
+    name: str
+    model: str
+
+
+class LlmProvidersOut(BaseModel):
+    providers: list[LlmProviderOut]
+    active: str | None
 
 
 class RepoProfileOut(BaseModel):
