@@ -134,6 +134,12 @@ class SeamIn(BaseModel):
     afterPattern: str | None = None
     invariants: list[str] | None = None
     testCommand: str | None = None
+    # G2 (frontend_refactor.md Phase 8): opaque planning-session capture —
+    # the client's shape (objective, mode, model, grounding stats, discovery
+    # reasoning...). Never interpreted server-side, only stored and echoed
+    # back so the Plan page has a server source instead of localStorage-only.
+    title: str | None = None
+    plan: dict | None = None
 
 
 class SeamOut(BaseModel):
@@ -143,6 +149,8 @@ class SeamOut(BaseModel):
     afterPattern: str
     invariants: list[str]
     testCommand: str
+    title: str | None = None
+    plan: dict | None = None
 
 
 class CampaignIn(BaseModel):
@@ -176,6 +184,50 @@ class CampaignOut(BaseModel):
     # show what every unit is being verified with (esp. when it was inferred).
     testCommand: str
     units: list[UnitOut]
+    # G1 (frontend_refactor.md Phase 8): additive fields so a reloaded/
+    # foreign browser (no localStorage campaignStore) can still reach the
+    # blast-radius graph (via repoId) and render the full seam record.
+    repoId: str
+    seam: SeamOut
+    createdAt: str
+    completedAt: str | None = None
+
+
+class CampaignSummaryOut(BaseModel):
+    """G3 — one row of the campaigns list (sidebar history, server-backed)."""
+
+    campaignId: str
+    title: str | None
+    status: str
+    repoId: str
+    repoUrl: str
+    createdAt: str
+    completedAt: str | None
+    unitCount: int
+    acceptedUnits: int
+    escalatedUnits: int
+
+
+class CampaignsListOut(BaseModel):
+    campaigns: list[CampaignSummaryOut]
+
+
+class UnitEventOut(BaseModel):
+    eventId: str
+    unitId: str
+    scopeGlob: str
+    eventType: str
+    message: str
+    metadata: dict | None
+    createdAt: str
+
+
+class CampaignEventsOut(BaseModel):
+    """G4 — unit_events read API, ordered oldest-first for tail/backfill."""
+
+    campaignId: str
+    events: list[UnitEventOut]
+    nextOffset: int | None
 
 
 class UnitPreviewOut(BaseModel):
@@ -295,3 +347,43 @@ class GraphOut(BaseModel):
     repoId: str
     nodes: list[GraphNodeOut]
     edges: list[GraphEdgeOut]
+
+
+# --- Phase 9: conversational chat (see chat.py) --------------------------
+
+
+class ChatMessageIn(BaseModel):
+    message: str
+    # Optional unit this message is discussing (Batches "Discuss in chat"
+    # deep link / failure-prompt reference); must belong to the campaign.
+    unitRef: str | None = None
+
+
+class ChatMessageOut(BaseModel):
+    messageId: str
+    role: str  # user | assistant | system
+    content: str
+    unitRef: str | None
+    action: str | None
+    createdAt: str
+
+
+class ChatHistoryOut(BaseModel):
+    campaignId: str
+    messages: list[ChatMessageOut]
+
+
+class ChatTurnOut(BaseModel):
+    """Response to POST /campaign/{id}/chat: the persisted pair of messages."""
+
+    campaignId: str
+    userMessage: ChatMessageOut
+    assistantMessage: ChatMessageOut
+
+
+class ChatRetryUnitOut(BaseModel):
+    """Response to POST /campaign/{id}/chat/retry-unit/{unitId} — the
+    re-dispatch result plus the system chat message recording it."""
+
+    unit: UnitOut
+    systemMessage: ChatMessageOut

@@ -57,7 +57,8 @@ async def run_campaign(campaign_id: str, seam: dict, repo_path: Path) -> None:
         return
 
     await db.execute(
-        "UPDATE campaigns SET status = 'completed' WHERE campaign_id = $1", campaign_id
+        "UPDATE campaigns SET status = 'completed', completed_at = now() WHERE campaign_id = $1",
+        campaign_id,
     )
     logger.info(
         "Campaign %s completed: %d passed, %d escalated, %d blocked, "
@@ -99,6 +100,7 @@ async def run_campaign(campaign_id: str, seam: dict, repo_path: Path) -> None:
 
 async def _fail_campaign(campaign_id: str, reason: str) -> None:
     await db.execute(
-        "UPDATE campaigns SET status = 'failed' WHERE campaign_id = $1", campaign_id
+        "UPDATE campaigns SET status = 'failed', completed_at = now() WHERE campaign_id = $1",
+        campaign_id,
     )
     await manager.broadcast(campaign_id, "campaign_failed", {"reason": reason})
