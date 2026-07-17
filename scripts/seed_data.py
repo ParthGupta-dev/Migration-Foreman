@@ -1,8 +1,8 @@
 """Seed Postgres with sample Repo/Seam/Campaign/Unit/UnitEvent rows.
 
-For frontend development against realistic data without running a campaign.
-Requires asyncpg (run inside the backend container):
-  docker compose exec backend python /app/../scripts/seed_data.py
+For client development against realistic data without running a campaign.
+Requires asyncpg (run inside the server container):
+  docker compose exec server python /app/../scripts/seed_data.py
 or with scripts mounted:  python scripts/seed_data.py
 Honors DATABASE_URL (defaults to the local compose Postgres).
 """

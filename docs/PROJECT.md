@@ -462,23 +462,23 @@ CREATE INDEX idx_seams_repo_id ON seams(repo_id);
 
 ```
 root/
-├── frontend/          # Next.js app — repo input, seam review, live campaign view, summary view
-├── backend/           # FastAPI service — API routes, WebSocket server, Postgres connection
+├── client/            # Next.js app — repo input, seam review, live campaign view, summary view
+├── server/            # FastAPI service — API routes, WebSocket server, Postgres connection
 │   ├── discovery/      # Tree-sitter parsing, NetworkX graph build, ranking, safety blacklist
 │   ├── execution/       # Unit splitting, worktree management, Codex invocation
 │   ├── verification/    # Test runner wrapper, retry/escalation logic
 │   └── pr/               # PR assembly via GitHub API
 ├── docs/               # PROJECT.md and any supporting documentation
-├── deck/               # Pitch deck / demo narrative assets
+├── design/             # Design mocks / static HTML references
 ├── scripts/            # Dev/ops utilities: demo repo setup, seed data, campaign runner
 ```
 
 | Folder | Purpose | Owner |
 | --- | --- | --- |
-| `frontend/` | Repo input, seam review, live campaign view, summary view | Arushi |
-| `backend/` (all subfolders) | API routes, WebSocket server, Discovery Engine, Execution Engine, Verification Gate, PR assembly, Postgres integration | Parth |
+| `client/` | Repo input, seam review, live campaign view, summary view | Arushi |
+| `server/` (all subfolders) | API routes, WebSocket server, Discovery Engine, Execution Engine, Verification Gate, PR assembly, Postgres integration | Parth |
 | `docs/` | PROJECT.md and related documentation | Shared — see section 13 (Change Control) |
-| `deck/` | Pitch deck, demo script, closing-slide numbers | Tanvi |
+| `design/` | Design mocks, static HTML references | Tanvi |
 | `scripts/` | Dev/ops utilities: demo repo setup, seed data, campaign runner | Parth |
 
 ---
@@ -493,7 +493,7 @@ This is the team's live project tracker. Each person checks off tasks/subtasks a
 
 **Dependencies:** Frontend must consume the contracts in section 7 exactly as defined (Arushi).
 
-**Do Not Modify:** `frontend/` without flagging it to Arushi first.
+**Do Not Modify:** `client/` without flagging it to Arushi first.
 
 **Build Tracker:**
 
@@ -556,7 +556,7 @@ This is the team's live project tracker. Each person checks off tasks/subtasks a
 
 **Dependencies:** Backend REST endpoints and the `/ws/campaign/{campaignId}` WebSocket contract (section 7); data shapes from section 6.
 
-**Do Not Modify:** `backend/`, database schema, API/WebSocket contracts (section 7) without team approval.
+**Do Not Modify:** `server/`, database schema, API/WebSocket contracts (section 7) without team approval.
 
 > **Resolved (2026-07-13):** this was originally built in a `frontend_2/` folder. The old untouched `create-next-app` scaffold has since been removed and `frontend_2/` renamed to `frontend/`, so the folder structure in section 8 is accurate again.
 

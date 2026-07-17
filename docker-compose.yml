@@ -16,11 +16,11 @@ services:
       timeout: 3s
       retries: 10
 
-  backend:
-    build: ./backend
+  server:
+    build: ./server
     working_dir: /app
     volumes:
-      - ./backend:/app
+      - ./server:/app
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/migration_foreman
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
@@ -50,18 +50,18 @@ services:
       postgres:
         condition: service_healthy
 
-  frontend:
+  client:
     image: node:20-alpine
     working_dir: /app
     volumes:
-      - ./frontend:/app
+      - ./client:/app
     environment:
       NEXT_PUBLIC_BACKEND_BASE_URL: http://localhost:8000
     command: sh -c "npm install && npm run dev"
     ports:
       - "3000:3000"
     depends_on:
-      - backend
+      - server
 
 volumes:
   postgres_data:

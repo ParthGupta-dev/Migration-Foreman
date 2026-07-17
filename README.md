@@ -73,8 +73,8 @@ When several seams are approved at once, they execute one campaign at a time in 
 
 ```bash
 cp .env.example .env                      # add keys as needed (see below)
-python scripts/setup_demo_repo.py         # generate the frozen demo repo (backend/data/demo-repo)
-MOCK_CODEX=1 docker compose up -d --build # postgres + backend + frontend, offline LLM mock
+python scripts/setup_demo_repo.py         # generate the frozen demo repo (server/data/demo-repo)
+MOCK_CODEX=1 docker compose up -d --build # postgres + server + client, offline LLM mock
 ```
 
 Then either open the UI at **http://localhost:3000**, or drive everything from the CLI:
@@ -92,7 +92,7 @@ The CLI uses the same discovery pipeline as the UI: it prints the discovered sea
 
 The demo repo is a small Python project where a deprecated `legacy_format` helper must be replaced by `format_text` across modules that use it in different ways — some trivially, some in ways that break tests and exercise the retry/escalation path.
 
-**1. Ingest.** Open http://localhost:3000, click the demo repo preset, paste any Git URL, or click **Connect GitHub** and pick one of your own repositories from the dropdown (private repos included — the connected session's token is used to clone). The backend clones the repo, builds the import dependency graph, ranks migration candidates, and bootstraps a **repository profile** — languages, frameworks, package manager, build system, test framework, source roots, entry points, CI/Docker config — inferred entirely from what's on disk (`backend/discovery/profiler.py`). No `.migration-foreman` file of any kind is required for any of this: a first-time repository with zero prior Migration Foreman state works identically to one with campaign history. Only after a campaign completes does the backend optionally cache that profile plus a campaign-history entry into `.migration-foreman/` inside the clone — purely a speed/history cache; delete it and the next run just re-infers everything. See `GET /repo/{id}/profile`.
+**1. Ingest.** Open http://localhost:3000, click the demo repo preset, paste any Git URL, or click **Connect GitHub** and pick one of your own repositories from the dropdown (private repos included — the connected session's token is used to clone). The backend clones the repo, builds the import dependency graph, ranks migration candidates, and bootstraps a **repository profile** — languages, frameworks, package manager, build system, test framework, source roots, entry points, CI/Docker config — inferred entirely from what's on disk (`server/discovery/profiler.py`). No `.migration-foreman` file of any kind is required for any of this: a first-time repository with zero prior Migration Foreman state works identically to one with campaign history. Only after a campaign completes does the backend optionally cache that profile plus a campaign-history entry into `.migration-foreman/` inside the clone — purely a speed/history cache; delete it and the next run just re-infers everything. See `GET /repo/{id}/profile`.
 
 **2. State the objective in plain English.** The default **AI Discovery** mode shows an objective box. Type:
 
@@ -141,7 +141,7 @@ The whole migration workflow completes without any GitHub authentication; publis
    GITHUB_OAUTH_CLIENT_SECRET=…
    SESSION_ENCRYPTION_KEY=…   # any long random string; encrypts tokens at rest
    ```
-4. `docker compose up -d backend` to pick up the new env vars.
+4. `docker compose up -d server` to pick up the new env vars.
 
 Without this, `GET /github/status` reports `oauthAvailable: false` and the UI shows the manual-token fallback instead of the Connect button. A separately configured `GITHUB_TOKEN` env var makes `/github/status` report `connected: true` for the PR-creation fallback path, but it is **not** an OAuth session (`oauthConnected` stays `false`) and cannot be used to browse or pick "your" repositories — that requires an actual Connect GitHub login.
 
@@ -179,7 +179,7 @@ Everything above is implemented as thin route handlers over `services/github_ser
 
 ## LLM providers
 
-Everything model-facing goes through one env-driven client (`backend/llm.py`). Set keys in `.env` and the planner, migrator, retries, and rationale streaming all follow automatically:
+Everything model-facing goes through one env-driven client (`server/llm.py`). Set keys in `.env` and the planner, migrator, retries, and rationale streaming all follow automatically:
 
 | Setup in `.env` | Provider used |
 | --- | --- |

@@ -1,6 +1,6 @@
 """Generate the frozen demo repository used for the hackathon demo.
 
-Creates a small git repo (default: backend/data/demo-repo) with a genuine
+Creates a small git repo (default: server/data/demo-repo) with a genuine
 migration seam: a deprecated ``legacy_format()`` helper being replaced by the
 strict ``format_text()``. The repo is engineered so a campaign demonstrates
 every path the judges need to see:
@@ -236,7 +236,7 @@ def write_files(repo: Path, files: dict[str, str]) -> None:
 
 
 def main() -> None:
-    default = Path(__file__).resolve().parent.parent / "backend" / "data" / "demo-repo"
+    default = Path(__file__).resolve().parent.parent / "server" / "data" / "demo-repo"
     repo = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else default
 
     if repo.exists():
@@ -279,7 +279,7 @@ def main() -> None:
 
     print(f"Demo repo ready at {repo} (test suite clean)")
     print("Ingest with: POST /repo {\"repoUrl\": \"" + repo.as_posix() + "\"}")
-    print("Inside docker compose the backend sees it at /app/data/demo-repo")
+    print("Inside docker compose the server sees it at /app/data/demo-repo")
 
 
 if __name__ == "__main__":

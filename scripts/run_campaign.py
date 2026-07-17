@@ -1,6 +1,6 @@
 """End-to-end campaign runner CLI (stdlib only — no pip installs needed).
 
-Drives the backend through the full pipeline without the frontend, using the
+Drives the server through the full pipeline without the client, using the
 same AI planning pipeline as the UI (POST /repo/{id}/discover):
 ingest -> repository analysis + seam discovery -> human confirmation ->
 seam(s) -> campaign(s) -> live poll -> optional finalize.
@@ -20,7 +20,7 @@ Usage:
       --before old_api --after new_api --test-command "python -m pytest -q"
       (guided mode: you type the seam yourself, discovery is skipped)
 
---repo-url must be a path/URL valid *from the backend's point of view*
+--repo-url must be a path/URL valid *from the server's point of view*
 (inside docker compose the demo repo lives at /app/data/demo-repo).
 """
 
