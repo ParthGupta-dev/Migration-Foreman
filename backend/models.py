@@ -32,6 +32,25 @@ class CandidatesOut(BaseModel):
 
 class DiscoverIn(BaseModel):
     objective: str
+    # Optional specific model string from the frontend's model selector
+    # (GET /llm/providers, e.g. "llama-3.1-8b-instant") — overrides the
+    # env-selected default for this call. Ignored under MOCK_CODEX.
+    model: str | None = None
+
+
+class LlmModelOut(BaseModel):
+    model: str
+    usage: str  # "low" | "mid" | "high" -- static tier, see llm._MODEL_CATALOG
+
+
+class LlmProviderOut(BaseModel):
+    name: str
+    models: list[LlmModelOut]
+
+
+class LlmProvidersOut(BaseModel):
+    providers: list[LlmProviderOut]
+    active: str | None  # the currently-active MODEL string (or "mock")
 
 
 class RepoProfileOut(BaseModel):
@@ -121,6 +140,18 @@ class SeamIn(BaseModel):
     afterPattern: str | None = None
     invariants: list[str] | None = None
     testCommand: str | None = None
+    # G2 (frontend_refactor.md Phase 8): opaque planning-session capture —
+    # the client's shape (objective, mode, model, grounding stats, discovery
+    # reasoning...). Never interpreted server-side, only stored and echoed
+    # back so the Plan page has a server source instead of localStorage-only.
+    title: str | None = None
+    plan: dict | None = None
+    # G8 (frontend_refactor.md Phase 8, landed): the specific model string
+    # from the frontend's model selector (GET /llm/providers, e.g.
+    # "llama-3.1-8b-instant"), persisted on the seam so every execution-time
+    # call for this campaign (not just the one discover() call) uses the
+    # exact model the human picked -- llm.py resolves which provider hosts it.
+    model: str | None = None
 
 
 class SeamOut(BaseModel):
@@ -130,6 +161,9 @@ class SeamOut(BaseModel):
     afterPattern: str
     invariants: list[str]
     testCommand: str
+    title: str | None = None
+    plan: dict | None = None
+    provider: str | None = None  # the model string chosen at seam creation (see SeamIn.model)
 
 
 class CampaignIn(BaseModel):
@@ -163,6 +197,50 @@ class CampaignOut(BaseModel):
     # show what every unit is being verified with (esp. when it was inferred).
     testCommand: str
     units: list[UnitOut]
+    # G1 (frontend_refactor.md Phase 8): additive fields so a reloaded/
+    # foreign browser (no localStorage campaignStore) can still reach the
+    # blast-radius graph (via repoId) and render the full seam record.
+    repoId: str
+    seam: SeamOut
+    createdAt: str
+    completedAt: str | None = None
+
+
+class CampaignSummaryOut(BaseModel):
+    """G3 — one row of the campaigns list (sidebar history, server-backed)."""
+
+    campaignId: str
+    title: str | None
+    status: str
+    repoId: str
+    repoUrl: str
+    createdAt: str
+    completedAt: str | None
+    unitCount: int
+    acceptedUnits: int
+    escalatedUnits: int
+
+
+class CampaignsListOut(BaseModel):
+    campaigns: list[CampaignSummaryOut]
+
+
+class UnitEventOut(BaseModel):
+    eventId: str
+    unitId: str
+    scopeGlob: str
+    eventType: str
+    message: str
+    metadata: dict | None
+    createdAt: str
+
+
+class CampaignEventsOut(BaseModel):
+    """G4 — unit_events read API, ordered oldest-first for tail/backfill."""
+
+    campaignId: str
+    events: list[UnitEventOut]
+    nextOffset: int | None
 
 
 class UnitPreviewOut(BaseModel):
@@ -282,3 +360,43 @@ class GraphOut(BaseModel):
     repoId: str
     nodes: list[GraphNodeOut]
     edges: list[GraphEdgeOut]
+
+
+# --- Phase 9: conversational chat (see chat.py) --------------------------
+
+
+class ChatMessageIn(BaseModel):
+    message: str
+    # Optional unit this message is discussing (Batches "Discuss in chat"
+    # deep link / failure-prompt reference); must belong to the campaign.
+    unitRef: str | None = None
+
+
+class ChatMessageOut(BaseModel):
+    messageId: str
+    role: str  # user | assistant | system
+    content: str
+    unitRef: str | None
+    action: str | None
+    createdAt: str
+
+
+class ChatHistoryOut(BaseModel):
+    campaignId: str
+    messages: list[ChatMessageOut]
+
+
+class ChatTurnOut(BaseModel):
+    """Response to POST /campaign/{id}/chat: the persisted pair of messages."""
+
+    campaignId: str
+    userMessage: ChatMessageOut
+    assistantMessage: ChatMessageOut
+
+
+class ChatRetryUnitOut(BaseModel):
+    """Response to POST /campaign/{id}/chat/retry-unit/{unitId} — the
+    re-dispatch result plus the system chat message recording it."""
+
+    unit: UnitOut
+    systemMessage: ChatMessageOut

@@ -57,6 +57,11 @@ export interface SeamRequest {
   afterPattern?: string;
   invariants?: string[];
   testCommand?: string;
+  // G8 (frontend_refactor.md Phase 8, landed): the model selector's choice
+  // (GET /llm/providers name, e.g. "groq"/"codex") at seam-creation time —
+  // persisted so every execution/retry call for this campaign uses the
+  // provider the human picked, not just the one planning call.
+  model?: string | null;
 }
 
 export type PlanRisk = "low" | "medium" | "high";
@@ -129,6 +134,15 @@ export interface Seam {
   testCommand: string;
 }
 
+// The seam object embedded in GET /campaign/{id} (gap G1/G2, now live):
+// the frozen Seam fields plus the nullable title/plan discovery persistence
+// (only populated when a campaign was started via the landing-page flow —
+// null for CLI-created campaigns).
+export interface CampaignSeam extends Seam {
+  title: string | null;
+  plan: Record<string, unknown> | null;
+}
+
 export type CampaignStatus = "running" | "completed" | "failed";
 
 export interface CampaignCreated {
@@ -172,6 +186,79 @@ export interface Campaign {
   // guessed wrong is visible immediately, not three retries deep.
   testCommand: string;
   units: Unit[];
+  // Additive, now-live enrichment (gap G1/G5): a reloaded/foreign browser can
+  // reach the graph + seam record + real durations without the client store.
+  repoId?: string;
+  seam?: CampaignSeam;
+  createdAt?: string;
+  completedAt?: string | null;
+}
+
+// --- GET /campaigns (server-backed history, gap G3 now live) ---
+export interface CampaignListItem {
+  campaignId: string;
+  title: string | null;
+  status: CampaignStatus;
+  repoId: string;
+  repoUrl: string;
+  createdAt: string;
+  completedAt: string | null;
+  unitCount: number;
+  acceptedUnits: number;
+  escalatedUnits: number;
+}
+
+export interface CampaignsResponse {
+  campaigns: CampaignListItem[];
+}
+
+// --- GET /campaign/{id}/events (real unit_events history, gap G4 now live) ---
+// Oldest-first, paginated. eventType is one of: "created" | "status_change"
+// | "codex_rationale"; metadata varies by type (status/attempt, failureLogTail).
+export interface CampaignEvent {
+  eventId: string;
+  unitId: string;
+  scopeGlob: string;
+  eventType: string;
+  message: string;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export interface CampaignEventsResponse {
+  campaignId: string;
+  events: CampaignEvent[];
+  nextOffset: number | null;
+}
+
+// --- Chat (Phase 9 backend now live) ---
+export type ChatRole = "user" | "assistant" | "system";
+
+export interface ChatMessageRecord {
+  messageId: string;
+  role: ChatRole;
+  content: string;
+  // A real unit id (UUID) the message is scoped to, or null.
+  unitRef: string | null;
+  // e.g. "retry_unit" on a system message emitted by the retry endpoint.
+  action: string | null;
+  createdAt: string;
+}
+
+export interface ChatHistory {
+  campaignId: string;
+  messages: ChatMessageRecord[];
+}
+
+export interface ChatPostResponse {
+  campaignId: string;
+  userMessage: ChatMessageRecord;
+  assistantMessage: ChatMessageRecord;
+}
+
+export interface ChatRetryResponse {
+  unit: Unit;
+  systemMessage: ChatMessageRecord;
 }
 
 export type PreviewFileType = "markdown" | "html" | "css" | "code";
@@ -256,6 +343,27 @@ export interface HealthResponse {
 export interface ApiErrorShape {
   error: string;
   message: string;
+}
+
+// GET /llm/providers — every selectable model, grouped by provider (API key
+// set), so the landing composer's model selector can offer a real choice —
+// with a sense of relative quota/cost via `usage` — instead of a decorative
+// pill. Under MOCK_CODEX this is always a single "mock" entry.
+export type LlmUsage = "low" | "mid" | "high";
+
+export interface LlmModel {
+  model: string;
+  usage: LlmUsage;
+}
+
+export interface LlmProvider {
+  name: string;
+  models: LlmModel[];
+}
+
+export interface LlmProvidersResponse {
+  providers: LlmProvider[];
+  active: string | null; // the currently-active MODEL string (or "mock")
 }
 
 // --- WebSocket contract: /ws/campaign/{campaignId}, server -> client only ---

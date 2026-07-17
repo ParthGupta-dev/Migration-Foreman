@@ -1,0 +1,705 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Foreman — Overview flow scene (mock)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="foreman.css">
+<style>
+  [hidden] { display: none !important; }
+
+  .stage-row { display: flex; gap: 16px; align-items: stretch; }
+  .scene-col { flex: 1; min-width: 0; }
+
+  .scene-wrap {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: var(--r-card); box-shadow: var(--shadow-card);
+    padding: 24px 16px 16px;
+  }
+  #scene { width: 100%; height: auto; display: block; }
+
+  /* prism faces — station slabs, depth via brightness, light seams */
+  .prism polygon { stroke: #FFFEFC; stroke-width: 1; }
+  .prism { color: #E5DCC9; }
+  .f-top   { fill: currentColor; }
+  .f-right { fill: currentColor; filter: brightness(0.92); }
+  .f-left  { fill: currentColor; filter: brightness(0.82); }
+
+  .flat { fill: #F1EDE6; stroke: #E0D5C4; stroke-width: 1; }
+  .belt.flat { fill: #EDE7DB; stroke: #DBCFBB; }
+  .belt-chevron { stroke: #CDBFA6; stroke-width: 1.5; fill: none; }
+  /* one chevron period = 34 world-x → screen (34·0.866, 34·0.29) */
+  @keyframes march { from { transform: translate(0,0); } to { transform: translate(29.44px, 9.86px); } }
+  @keyframes marchRev { from { transform: translate(0,0); } to { transform: translate(-29.44px, -9.86px); } }
+  .belt-flow { animation: march 1.1s linear infinite; }
+  .belt-flow.rev { animation-name: marchRev; }
+  /* a unit riding the return belt from the gate back to the bench entry */
+  @keyframes rideBack { from { transform: translate(173.2px, 249.2px); } to { transform: translate(-164.5px, 136.1px); } }
+  .block.riding { animation: rideBack 3.4s linear infinite; }
+  /* connector belts running along the depth (y) axis */
+  .belt-flow.fwdY { animation-name: marchY; }
+  .belt-flow.revY { animation-name: marchYRev; }
+  @keyframes marchY { from { transform: translate(0,0); } to { transform: translate(-29.44px, 9.86px); } }
+  @keyframes marchYRev { from { transform: translate(0,0); } to { transform: translate(29.44px, -9.86px); } }
+  .lit .f-top { stroke: var(--ok); stroke-width: 1.5; }
+
+  .scene-label {
+    font-family: var(--font-ui); font-weight: 600; font-size: 11px;
+    letter-spacing: 0.1em; text-transform: uppercase; fill: var(--dim);
+    text-anchor: middle;
+  }
+  .pile-count {
+    font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+    fill: var(--ink); text-anchor: middle;
+  }
+  /* stage names painted onto the front-left (user-facing) wall */
+  .wall-label {
+    font-family: var(--font-ui); font-weight: 700; font-size: 10px;
+    letter-spacing: 0.1em; text-transform: uppercase; fill: #4A4136; opacity: 0.9;
+  }
+  .prism.siding .f-top { stroke: #D9A99A; stroke-width: 1.5; }
+
+  /* blocks carry CATEGORY colour (set inline) their whole journey.
+     status rides on top as a floating badge + zone position. */
+  .block { cursor: pointer; }
+  .block polygon { stroke: rgba(255,255,255,0.82); stroke-width: 0.75; }
+  .block:focus { outline: none; }
+  .block:focus .f-top { stroke: var(--ink); stroke-width: 2; }
+
+  .badge circle { }
+  .badge-glyph {
+    fill: #FFFEFC; font-size: 9px; font-weight: 700;
+    text-anchor: middle; dominant-baseline: central; font-family: var(--font-ui);
+  }
+  @keyframes badgePulse { 0%,100% { opacity: .35 } 50% { opacity: 1 } }
+  .badge.run { animation: badgePulse 1.2s ease-in-out infinite; }
+
+  /* workbench tools — "hammering / crafting / polishing" */
+  @keyframes bob { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-5px) } }
+  @keyframes spark { 0%,100% { opacity: 0 } 50% { opacity: 1 } }
+  .hammer { animation: bob .5s ease-in-out infinite; }
+  .hammer-head { fill: #6E6152; }
+  .hammer-handle { stroke: #A9855C; stroke-width: 3; stroke-linecap: round; }
+  .spark { fill: var(--retry); animation: spark .6s ease-in-out infinite; }
+  .spark:nth-child(2) { animation-delay: .2s; }
+  .spark:nth-child(3) { animation-delay: .38s; }
+
+  .gate-lamp { r: 5; }
+  .dimmed #stations, .dimmed #paths, .dimmed #sky { opacity: 0.55; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .hammer, .spark, .badge.run, .belt-flow, .block.riding { animation: none; }
+  }
+
+  .caption {
+    margin-top: 12px; text-align: center;
+    font-size: 14px; color: var(--dim);
+  }
+  .caption strong { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .cat-legend {
+    display: flex; flex-wrap: wrap; gap: 14px; justify-content: center;
+    margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line);
+  }
+  .cat-legend span { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--dim); }
+  .cat-legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+
+  /* review chat panel — slides in beside the scene */
+  .chat-col {
+    width: 0; opacity: 0; overflow: hidden; flex: 0 0 auto;
+    transition: width .25s ease, opacity .2s ease;
+    display: flex; flex-direction: column;
+    background: var(--card); border-radius: var(--r-card);
+    box-shadow: var(--shadow-card);
+  }
+  .chat-col.open { width: 360px; opacity: 1; border: 1px solid var(--line); }
+  .chat-head { display: flex; align-items: center; gap: 8px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .chat-head .path { font-family: var(--font-mono); font-size: 13px; color: var(--ink); }
+  .chat-head .collapse { margin-left: auto; background: none; border: none; cursor: pointer; color: var(--dim); font-size: 18px; line-height: 1; padding: 2px 6px; border-radius: 6px; }
+  .chat-head .collapse:hover { background: var(--queued-bg); color: var(--ink); }
+  .chat-body { flex: 1; overflow-y: auto; padding: 16px; }
+  .chat-body h3 { font-size: 11px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--dim); margin: 0 0 8px; }
+  .chat-body h3:not(:first-child) { margin-top: 20px; }
+  .chat-reason { font-size: 13px; color: var(--ink); margin: 0 0 4px; }
+  .chat-foot { border-top: 1px solid var(--line); padding: 12px 16px; }
+  .chat-foot textarea { width: 100%; resize: none; font: inherit; font-size: 13px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); }
+  .chat-foot .row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .chat-foot .note { font-size: 11px; color: var(--faint); flex: 1; }
+
+  /* KPI strip — compact, purpose-only; complements the scene, doesn't compete */
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 16px; }
+  .kpi { background: var(--card); border: 1px solid var(--line); border-radius: var(--r-card); padding: 14px 16px; box-shadow: var(--shadow-card); }
+  .kpi-num { font-size: 26px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .kpi-num.hot { color: var(--fail); }
+  .kpi-lbl { font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); margin-top: 6px; }
+  .kpi-sub { font-size: 12px; color: var(--faint); margin-top: 2px; }
+  @media (max-width: 820px) { .kpis { grid-template-columns: repeat(2, 1fr); } }
+
+  /* mock-only controls */
+  .mock-controls {
+    margin-top: 24px; padding: 14px 16px;
+    border: 1px dashed #D6C9B5; border-radius: var(--r-card);
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  }
+  .mock-controls .lbl {
+    font-family: var(--font-mono); font-size: 10px; color: var(--faint);
+    letter-spacing: 0.12em; margin-right: 8px;
+  }
+  .mock-controls .sep { width: 1px; align-self: stretch; background: var(--line); margin: 0 4px; }
+  .state-btn.on { background: var(--queued-bg); border-color: var(--faint); }
+</style>
+</head>
+<body>
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <symbol id="i-factory" viewBox="0 0 24 24"><path d="M2 20a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8l-7 5V8l-7 5V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M17 18h1"/><path d="M12 18h1"/><path d="M7 18h1"/></symbol>
+  <symbol id="i-scroll" viewBox="0 0 24 24"><path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/></symbol>
+  <symbol id="i-boxes" viewBox="0 0 24 24"><path d="M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z"/><path d="m7 16.5-4.74-2.85"/><path d="m7 16.5 5-3"/><path d="M7 16.5v5.17"/><path d="M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z"/><path d="m17 16.5-5-3"/><path d="m17 16.5 4.74-2.85"/><path d="M17 16.5v5.17"/><path d="M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z"/><path d="M12 8 7.26 5.15"/><path d="m12 8 4.74-2.85"/><path d="M12 13.5V8"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="i-term" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></symbol>
+  <symbol id="i-clip" viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+  <symbol id="i-panel-close" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m16 15-3-3 3-3"/></symbol>
+  <symbol id="i-panel-open" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m14 9 3 3-3 3"/></symbol>
+</svg>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="logo"><span class="logo-mark"></span><span class="logo-word">Foreman</span></div>
+    <nav class="nav" aria-label="Main">
+      <a class="nav-item active" href="overview.html" aria-current="page" title="Overview"><svg class="nav-ico"><use href="#i-factory"/></svg><span class="nav-txt">Overview</span></a>
+      <a class="nav-item" href="plan.html" title="Plan"><svg class="nav-ico"><use href="#i-scroll"/></svg><span class="nav-txt">Plan</span></a>
+      <a class="nav-item has-badge" href="batches.html" title="Batches"><svg class="nav-ico"><use href="#i-boxes"/></svg><span class="nav-txt">Batches</span><span class="nav-badge">1</span></a>
+      <a class="nav-item" href="chat.html" title="Chat"><svg class="nav-ico"><use href="#i-chat"/></svg><span class="nav-txt">Chat</span></a>
+      <a class="nav-item" href="log.html" title="Log"><svg class="nav-ico"><use href="#i-term"/></svg><span class="nav-txt">Log</span></a>
+      <a class="nav-item" href="summary.html" title="Summary"><svg class="nav-ico"><use href="#i-clip"/></svg><span class="nav-txt">Summary</span></a>
+    </nav>
+    <div class="sidebar-sep"></div>
+    <div class="active-label">Campaigns</div>
+    <div class="hist-list">
+      <a class="hist-item on" href="overview.html" title="legacy_format → format_text — running · 9/15">
+        <span class="lamp st-run pulse"></span>
+        <span class="hist-body"><span class="hist-name">legacy_format → format_text</span><span class="hist-meta">running · 9/15</span></span>
+      </a>
+      <a class="hist-item" href="#" title="requests → httpx — done · 12/12 · switches the dashboard to that campaign">
+        <span class="lamp st-ok"></span>
+        <span class="hist-body"><span class="hist-name">requests → httpx</span><span class="hist-meta">done · 12/12 · 3d</span></span>
+      </a>
+      <a class="hist-item" href="#" title="drop moment.js — failed · switches the dashboard to that campaign">
+        <span class="lamp st-fail"></span>
+        <span class="hist-body"><span class="hist-name">drop moment.js</span><span class="hist-meta">failed · 6d</span></span>
+      </a>
+      <a class="hist-new" href="landing.html" title="New campaign"><svg class="nav-ico"><use href="#i-plus"/></svg><span class="nav-txt">New campaign</span></a>
+    </div>
+    <button class="collapse-btn" onclick="mfToggleSidebar()" title="Toggle sidebar" aria-label="Toggle sidebar">
+      <svg class="nav-ico ico-collapse"><use href="#i-panel-close"/></svg>
+      <svg class="nav-ico ico-expand"><use href="#i-panel-open"/></svg>
+      <span class="nav-txt">Collapse</span>
+    </button>
+    <p class="mock-note">mock · yard → build → ship<br>other mocks: <a href="index.html">index</a></p>
+  </aside>
+
+  <main class="content">
+    <header class="topstrip">
+      <div class="ts-row">
+        <span class="campaign-name">legacy_format → format_text</span>
+        <span class="state-chip pill-run"><span class="lamp st-run pulse"></span>Running</span>
+        <span class="ts-frac mono">9/15 accepted</span>
+      </div>
+      <div class="progress"><div class="progress-fill" style="width:60%"></div></div>
+    </header>
+
+    <div class="page" style="max-width:1240px">
+      <div class="stage-row">
+        <div class="scene-col">
+          <div class="scene-wrap">
+            <svg id="scene" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Migration yard: planned units by batch, conveyor to the build bench, shipping dock and review siding">
+              <g id="paths"></g>
+              <g id="stations"></g>
+              <g id="tokens"></g>
+              <g id="gate-near"></g>
+              <g id="sky"></g>
+              <g id="fx"></g>
+              <g id="labels"></g>
+            </svg>
+            <p id="caption" class="caption"></p>
+            <div id="catLegend" class="cat-legend"></div>
+          </div>
+
+          <div class="kpis">
+            <div class="kpi"><div class="kpi-num" id="k-accepted">9/15</div><div class="kpi-lbl">Accepted</div><div class="kpi-sub" id="k-accepted-sub">60% complete</div></div>
+            <div class="kpi"><div class="kpi-num" id="k-flight">3</div><div class="kpi-lbl">On the bench</div><div class="kpi-sub">in worktrees</div></div>
+            <div class="kpi"><div class="kpi-num" id="k-esc">1</div><div class="kpi-lbl">Escalated</div><div class="kpi-sub">needs review</div></div>
+            <div class="kpi"><div class="kpi-num" id="k-elapsed">31m</div><div class="kpi-lbl">Elapsed</div><div class="kpi-sub" id="k-eta">~18m left</div></div>
+          </div>
+
+          <div class="mock-controls">
+            <span class="lbl">MOCK CONTROLS</span>
+            <button class="btn btn-ghost btn-sm state-btn on" data-state="idle">idle</button>
+            <button class="btn btn-ghost btn-sm state-btn" data-state="running">running</button>
+            <button class="btn btn-ghost btn-sm state-btn" data-state="retry">retry loop</button>
+            <button class="btn btn-ghost btn-sm state-btn" data-state="escalated">escalated</button>
+            <button class="btn btn-ghost btn-sm state-btn" data-state="complete">complete</button>
+            <span class="sep"></span>
+            <button class="btn btn-ghost btn-sm" id="yardToggle">yard: large</button>
+            <button class="btn btn-primary btn-sm" id="play" style="margin-left:auto">▶ play build → ship</button>
+          </div>
+          <p class="hint" style="margin-top:8px">Blocks are coloured by <strong>batch</strong> (the AI groups in-scope files into batches and assigns each a colour). Status shows as the floating badge and which zone the block sits in. Click a block on the <span class="mono">review siding</span> to open its panel. Real build uses GSAP; this mock uses CSS transitions.</p>
+        </div>
+
+        <aside class="chat-col" id="chatPanel" aria-label="Review a failed unit">
+          <div class="chat-head">
+            <span class="lamp lamp-lg st-fail"></span>
+            <span class="path" id="chatPath">src/exporter.py</span>
+            <button class="collapse" id="chatClose" aria-label="Collapse panel">×</button>
+          </div>
+          <div class="chat-body">
+            <p class="chat-reason">Tests still failing after 3 rounds. The export column-width assertions depend on the exact padding of <span class="mono">legacy_format</span>; a mechanical swap changes alignment.</p>
+            <h3>Failure log · round 3</h3>
+            <div class="codeblock"><span class="ln">FAIL: test_export_columns (tests.test_exporter)</span><span class="ln">AssertionError:</span><span class="ln del">- 'NAME      QTY   PRICE '</span><span class="ln add">+ 'NAME    QTY  PRICE'</span><span class="ln"> </span><span class="ln">Ran 6 tests — failures=2</span></div>
+            <h3>Last attempted diff</h3>
+            <div class="codeblock"><span class="ln hunk">@@ src/exporter.py:88 @@</span><span class="ln del">-        cells = [legacy_format(c, width=10)</span><span class="ln add">+        cells = [format_text(c, width=10)</span><span class="ln">                  for c in self.columns]</span></div>
+          </div>
+          <div class="chat-foot">
+            <div class="row" style="margin-top:0">
+              <span class="note">Full discussion lives on the Chat page — same session that planned this campaign.</span>
+              <a class="btn btn-primary btn-sm" href="chat.html?ref=B-02">Discuss in chat →</a>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var SVG = "http://www.w3.org/2000/svg";
+  var scene = document.getElementById("scene");
+  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* ---------- category palette (batch identity — muted, distinct, no red/green,
+     because red = failed and green = accepted are reserved for status) ---------- */
+  var CATS = {
+    routing:  { hue: "#5B7FA6", label: "routing" },   // blue
+    render:   { hue: "#3F8A82", label: "render" },     // teal
+    export:   { hue: "#8A8B4E", label: "export" },     // olive
+    notify:   { hue: "#B0788F", label: "notify" },     // dusty rose
+    data:     { hue: "#5A6BA0", label: "data" },       // indigo
+    sdk:      { hue: "#5E96A8", label: "sdk" },         // sky
+    auth:     { hue: "#8172A6", label: "auth" },        // violet
+    payments: { hue: "#BFA24E", label: "payments" }     // gold
+  };
+  function catHue(cat) { return (CATS[cat] || { hue: "#8A8072" }).hue; }
+
+  /* batch ids on the Batches page — block click deep-links there */
+  var CAT2B = { render: "B-01", export: "B-02", data: "B-03", notify: "B-04", sdk: "B-05" };
+
+  var BADGE_FILL = { ok: "#1A7F37", fail: "#CF222E", retry: "#B8894F", run: "#3D362D" };
+  var HEX = { ok: "#7C9463", run: "#3D362D", retry: "#B8894F", fail: "#B15D48", queued: "#8A8072" };
+
+  /* flattened isometric projection */
+  var C = 0.866, S = 0.29;
+  function P(x, y, z) { return [(x - y) * C, (x + y) * S - (z || 0)]; }
+  function pts(list) { return list.map(function (p) { return p[0].toFixed(1) + "," + p[1].toFixed(1); }).join(" "); }
+
+  function el(name, attrs, parent) {
+    var n = document.createElementNS(SVG, name);
+    for (var k in attrs) n.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(n);
+    return n;
+  }
+
+  function prism(parent, x, y, z0, w, d, h, cls) {
+    var t = z0 + h;
+    var g = el("g", { "class": "prism" + (cls ? " " + cls : "") }, parent);
+    el("polygon", { "class": "f-left",  points: pts([P(x, y + d, t), P(x + w, y + d, t), P(x + w, y + d, z0), P(x, y + d, z0)]) }, g);
+    el("polygon", { "class": "f-right", points: pts([P(x + w, y, t), P(x + w, y + d, t), P(x + w, y + d, z0), P(x + w, y, z0)]) }, g);
+    el("polygon", { "class": "f-top",   points: pts([P(x, y, t), P(x + w, y, t), P(x + w, y + d, t), P(x, y + d, t)]) }, g);
+    return g;
+  }
+  function flat(parent, x, y, w, d, cls) {
+    return el("polygon", { "class": "flat" + (cls ? " " + cls : ""), points: pts([P(x, y, 2), P(x + w, y, 2), P(x + w, y + d, 2), P(x, y + d, 2)]) }, parent);
+  }
+  function label(parent, x, y, z, text) {
+    var p = P(x, y, z);
+    var t = el("text", { "class": "scene-label", x: p[0], y: p[1] }, parent);
+    t.textContent = text;
+    return t;
+  }
+  /* paint a stage name onto its front-left wall (base x,y size w,d height h).
+     the wall's horizontal runs +x → screen (C,S); its vertical is screen-vertical,
+     so matrix(C,S,0,1) lays the text flat on that face. */
+  function wallLabel(x, y, w, d, h, text) {
+    var p = P(x + w * 0.14, y + d, h * 0.30);
+    var t = el("text", { "class": "wall-label",
+      transform: "matrix(" + C + "," + S + ",0,1," + p[0].toFixed(1) + "," + p[1].toFixed(1) + ")" }, gLabels);
+    t.textContent = text;
+    return t;
+  }
+  function pathThrough(parent, world, cls) {
+    var proj = world.map(function (w) { return P(w[0], w[1], w[2]); });
+    var d = "M" + proj[0][0].toFixed(1) + " " + proj[0][1].toFixed(1);
+    for (var i = 1; i < proj.length; i++) {
+      var prev = proj[i - 1], cur = proj[i];
+      d += " Q" + ((prev[0] + cur[0]) / 2).toFixed(1) + " " + (Math.min(prev[1], cur[1]) - 6).toFixed(1) +
+           " " + cur[0].toFixed(1) + " " + cur[1].toFixed(1);
+    }
+    return el("path", { "class": cls, d: d }, parent);
+  }
+
+  /* animated conveyor belt: plate + marching chevrons, clipped to the plate.
+     outer group holds the clip (stable coords); inner group carries the animation. */
+  var CHEV = 34;
+  function belt(parent, x0, x1, y, id, rev) {
+    flat(parent, x0, y - 14, x1 - x0, 34, "belt");
+    var cp = el("clipPath", { id: id }, parent);
+    el("polygon", { points: pts([P(x0, y - 14, 2), P(x1, y - 14, 2), P(x1, y + 20, 2), P(x0, y + 20, 2)]) }, cp);
+    var clipG = el("g", { "clip-path": "url(#" + id + ")" }, parent);
+    var g = el("g", { "class": "belt-flow" + (rev ? " rev" : "") }, clipG);
+    var tip = rev ? -14 : 14;
+    for (var bx = x0 - CHEV; bx < x1 + CHEV; bx += CHEV) {
+      var a = P(bx, y - 12, 3), b = P(bx + tip, y + 3, 3), c = P(bx, y + 18, 3);
+      el("path", { "class": "belt-chevron", d: "M" + a[0] + " " + a[1] + " L" + b[0] + " " + b[1] + " L" + c[0] + " " + c[1] }, g);
+    }
+  }
+  /* connector belt running along the depth axis at constant x, from y0 to y1 */
+  function beltY(parent, y0, y1, x, id, rev) {
+    flat(parent, x - 14, y0, 34, y1 - y0, "belt");
+    var cp = el("clipPath", { id: id }, parent);
+    el("polygon", { points: pts([P(x - 14, y0, 2), P(x + 20, y0, 2), P(x + 20, y1, 2), P(x - 14, y1, 2)]) }, cp);
+    var clipG = el("g", { "clip-path": "url(#" + id + ")" }, parent);
+    var g = el("g", { "class": "belt-flow " + (rev ? "revY" : "fwdY") }, clipG);
+    var tip = rev ? -14 : 14;
+    for (var by = y0 - CHEV; by < y1 + CHEV; by += CHEV) {
+      var a = P(x - 12, by, 3), b = P(x + 3, by + tip, 3), c = P(x + 18, by, 3);
+      el("path", { "class": "belt-chevron", d: "M" + a[0] + " " + a[1] + " L" + b[0] + " " + b[1] + " L" + c[0] + " " + c[1] }, g);
+    }
+  }
+
+  var gPaths = document.getElementById("paths");
+  var gStations = document.getElementById("stations");
+  var gTokens = document.getElementById("tokens");
+  var gGateNear = document.getElementById("gate-near");
+  var gSky = document.getElementById("sky");
+  var gFx = document.getElementById("fx");
+  var gLabels = document.getElementById("labels");
+
+  /* ---------- zone geometry ---------- */
+  var BELT_Y = 240, BELT_X0 = 150, BELT_X1 = 430;
+  var BENCH_X = 445, BENCH_Y = 150, BENCH_W = 130, BENCH_D = 150, BENCH_H = 26;
+  var BENCH_TOP = BENCH_H + 2;
+  var BENCH_SLOTS = [175, 235, 290];           // slot y-centres on the bench
+  var RETURN_Y = 340;                          // return-belt lane (retries ride back)
+  var DOCK_X = 720, DOCK_Y = 150;
+  var SIDING_X = 470, SIDING_Y = 430;
+  var YARD_H = 12, DOCK_H = 14, SIDING_H = 12;  // stage heights (tall enough to carry a wall label)
+  var PILE_SPOTS = [[-40, 120], [-40, 200], [-40, 280], [45, 120], [45, 200], [45, 280]];
+
+  /* ---------- static scene ---------- */
+
+  // yard stage + conveyor (yard → bench)
+  prism(gStations, -58, 100, 0, 150, 215, YARD_H);
+  belt(gPaths, BELT_X0, BELT_X1, BELT_Y, "belt1");
+
+  // build bench
+  prism(gStations, BENCH_X, BENCH_Y, 0, BENCH_W, BENCH_D, BENCH_H);
+  // gate lamp at the bench exit
+  var gateLampPos = P(BENCH_X + BENCH_W + 16, BELT_Y, BENCH_TOP + 20);
+  var gateLamp = el("circle", { "class": "gate-lamp", cx: gateLampPos[0], cy: gateLampPos[1], fill: HEX.run }, gStations);
+
+  // conveyor (bench → shipping)
+  belt(gPaths, BENCH_X + BENCH_W, DOCK_X + 8, BELT_Y, "belt2");
+  // retry loop: gate drops down onto the return belt, which carries units back
+  // and up to the start of the yard→bench conveyor — a closed circuit.
+  beltY(gPaths, BELT_Y, RETURN_Y, 590, "beltR", false);   // gate → down to return lane
+  belt(gPaths, BELT_X0, 600, RETURN_Y, "belt3", true);    // return lane (right → left)
+  beltY(gPaths, BELT_Y, RETURN_Y, 165, "beltL", true);    // return lane → up to conveyor
+  // shipping dock platform + PR crate
+  prism(gStations, DOCK_X, DOCK_Y, 0, 190, 170, DOCK_H);
+  var prStation = prism(gStations, 960, 170, 0, 110, 110, 44);
+
+  // review siding (beveled platform)
+  prism(gStations, SIDING_X, SIDING_Y, 0, 150, 90, SIDING_H, "siding");
+
+  // stage names — painted on each stage's front-facing wall
+  wallLabel(-58, 100, 150, 215, YARD_H, "Yard");
+  wallLabel(BENCH_X, BENCH_Y, BENCH_W, BENCH_D, BENCH_H, "Build bench");
+  wallLabel(DOCK_X, DOCK_Y, 190, 170, DOCK_H, "Shipping");
+  wallLabel(960, 170, 110, 110, 44, "PR");
+  wallLabel(SIDING_X, SIDING_Y, 150, 90, SIDING_H, "Review siding");
+  // flow labels (belts / gate have no wall) stay floating
+  label(gLabels, 290, BELT_Y + 34, 6, "Conveyor");
+  label(gLabels, BENCH_X + BENCH_W + 16, BELT_Y, BENCH_TOP + 44, "Gate");
+  label(gLabels, 300, RETURN_Y + 40, 4, "Retry loop");
+
+  /* ---------- blocks (category colour + status badge) ---------- */
+
+  function addBadge(g, status) {
+    var p = P(11, 0, 30);
+    var b = el("g", { "class": "badge " + status, transform: "translate(" + p[0].toFixed(1) + " " + p[1].toFixed(1) + ")" }, g);
+    el("circle", { r: 7, cx: 0, cy: 0, fill: BADGE_FILL[status], stroke: "#FFFEFC", "stroke-width": 1.5 }, b);
+    var glyph = { ok: "✓", fail: "✕", retry: "↻", run: "" }[status];
+    if (glyph) { var t = el("text", { x: 0, y: 0, "class": "badge-glyph" }, b); t.textContent = glyph; }
+  }
+
+  function block(cat, status, x, y, z, parent) {
+    var g = el("g", { "class": "block", tabindex: "0", role: "button",
+      "aria-label": (CATS[cat] ? CATS[cat].label : cat) + " unit — " + (status || "queued") }, parent || gTokens);
+    g.style.color = catHue(cat);
+    var w = 22, d = 22, h = 16;
+    el("polygon", { "class": "f-left",  points: pts([P(0, d, h), P(w, d, h), P(w, d, 0), P(0, d, 0)]) }, g);
+    el("polygon", { "class": "f-right", points: pts([P(w, 0, h), P(w, d, h), P(w, d, 0), P(w, 0, 0)]) }, g);
+    el("polygon", { "class": "f-top",   points: pts([P(0, 0, h), P(w, 0, h), P(w, d, h), P(0, d, h)]) }, g);
+    if (status && status !== "queued" && status !== "ok") addBadge(g, status);
+    moveTo(g, x, y, z);
+    g.dataset.cat = cat; g.dataset.status = status || "queued";
+    g.addEventListener("click", function () {
+      if (g.dataset.status === "fail") openChat(cat);
+      else window.location.href = "batches.html" + (CAT2B[cat] ? "?open=" + CAT2B[cat] : "");
+    });
+    return g;
+  }
+  function moveTo(g, x, y, z) {
+    var p = P(x, y, z || 4);
+    g.setAttribute("transform", "translate(" + p[0].toFixed(1) + " " + p[1].toFixed(1) + ")");
+  }
+  function setStatus(g, status) {
+    var old = g.querySelector(".badge"); if (old) old.remove();
+    if (status && status !== "queued" && status !== "ok") addBadge(g, status);
+    g.dataset.status = status;
+  }
+
+  function hammerFx(x, y, z) {
+    var p = P(x + 11, y, z + 26);
+    var g = el("g", { transform: "translate(" + p[0].toFixed(1) + " " + p[1].toFixed(1) + ")" }, gFx);
+    var h = el("g", { "class": "hammer" }, g);
+    el("line", { "class": "hammer-handle", x1: 0, y1: 0, x2: 9, y2: -14 }, h);
+    el("rect", { "class": "hammer-head", x: 6, y: -22, width: 12, height: 7, rx: 1.5 }, h);
+    el("circle", { "class": "spark", cx: -6, cy: -2, r: 1.8 }, g);
+    el("circle", { "class": "spark", cx: -2, cy: -8, r: 1.6 }, g);
+    el("circle", { "class": "spark", cx: 4, cy: -3, r: 1.5 }, g);
+    return g;
+  }
+
+  /* ---------- yard / dock builders ---------- */
+
+  var YARD_LARGE = [
+    { cat: "routing", n: 12 }, { cat: "render", n: 8 }, { cat: "export", n: 9 },
+    { cat: "notify", n: 4 }, { cat: "data", n: 6 }, { cat: "sdk", n: 5 }
+  ];
+  var YARD_SMALL = [
+    { cat: "routing" }, { cat: "render" }, { cat: "export" }, { cat: "notify" }, { cat: "data" }
+  ];
+  var yardMode = "large";
+
+  function buildYard(scale) {
+    if (yardMode === "small") {
+      YARD_SMALL.forEach(function (c, i) {
+        block(c.cat, "queued", -34 + (i % 3) * 34, 150 + Math.floor(i / 3) * 42, YARD_H);
+      });
+      return;
+    }
+    YARD_LARGE.forEach(function (pile, idx) {
+      var spot = PILE_SPOTS[idx];
+      var n = Math.max(0, Math.round(pile.n * (scale == null ? 1 : scale)));
+      var shown = Math.min(n, 6);
+      for (var i = 0; i < shown; i++) block(pile.cat, "queued", spot[0], spot[1], YARD_H + i * 10);
+      if (n > 0) {
+        var p = P(spot[0] + 11, spot[1], YARD_H + shown * 10 + 20);
+        var t = el("text", { "class": "pile-count", x: p[0], y: p[1] }, gTokens);
+        t.textContent = "×" + n;
+      }
+    });
+  }
+
+  function dock(count) {
+    for (var i = 0; i < count; i++) {
+      var col = i % 5, row = Math.floor(i / 5);
+      var cat = YARD_LARGE[i % YARD_LARGE.length].cat;
+      block(cat, "ok", DOCK_X + 20 + col * 32, DOCK_Y + 16 + row * 46, DOCK_H);
+    }
+  }
+
+  function clearScene() { gTokens.innerHTML = ""; gFx.innerHTML = ""; }
+
+  /* ---------- category legend ---------- */
+  var legendEl = document.getElementById("catLegend");
+  function renderLegend() {
+    legendEl.innerHTML = "";
+    var list = yardMode === "small" ? YARD_SMALL : YARD_LARGE;
+    list.forEach(function (item) {
+      var s = document.createElement("span");
+      s.innerHTML = '<i style="background:' + catHue(item.cat) + '"></i>' + (CATS[item.cat] ? CATS[item.cat].label : item.cat);
+      legendEl.appendChild(s);
+    });
+  }
+
+  /* ---------- states ---------- */
+
+  var caption = document.getElementById("caption");
+  var STATES = {
+    idle: {
+      dim: true, lamp: HEX.queued, pr: false,
+      kpi: { accepted: "0/15", pct: "not started", flight: "0", esc: "0", elapsed: "0m", eta: "queued" },
+      caption: "Foreman groups the in-scope files into <strong>batches</strong>, then runs each unit through the bench — hammering, testing, polishing — and only ships what passes the gate.",
+      build: function () { buildYard(1); }
+    },
+    running: {
+      lamp: HEX.run, pr: false,
+      kpi: { accepted: "9/15", pct: "60% complete", flight: "3", esc: "1", elapsed: "31m", eta: "~18m left" },
+      caption: "<strong>9/15</strong> accepted · 3 units on the bench · 1 riding the conveyor",
+      build: function () {
+        buildYard(0.55);
+        block("notify", "run", 300, BELT_Y, 4);                 // on the belt
+        var slots = [["routing", 0], ["render", 1], ["export", 2]];
+        slots.forEach(function (s) {
+          var y = BENCH_SLOTS[s[1]];
+          block(s[0], "run", BENCH_X + 45, y, BENCH_TOP);
+          hammerFx(BENCH_X + 45, y, BENCH_TOP);
+        });
+        dock(9);
+      }
+    },
+    retry: {
+      lamp: HEX.retry, pr: false,
+      kpi: { accepted: "9/15", pct: "60% complete", flight: "1", esc: "0", elapsed: "34m", eta: "~16m left" },
+      caption: "<strong>U-08</strong> failed the gate — recoloured amber and riding the return belt back for round 2 with the failure log attached",
+      build: function () {
+        buildYard(0.5);
+        block("render", "run", BENCH_X + 45, BENCH_SLOTS[0], BENCH_TOP);
+        hammerFx(BENCH_X + 45, BENCH_SLOTS[0], BENCH_TOP);
+        var r = block("export", "retry", 540, RETURN_Y, 6);      // riding the return belt back
+        r.classList.add("riding");
+        dock(9);
+      }
+    },
+    escalated: {
+      lamp: HEX.fail, pr: false,
+      kpi: { accepted: "9/15", pct: "60% complete", flight: "1", esc: "1", elapsed: "38m", eta: "~12m left" },
+      caption: "<strong>U-07</strong> exhausted 3 rounds — parked on the review siding. Click it to open the panel.",
+      build: function () {
+        buildYard(0.4);
+        block("render", "run", BENCH_X + 45, BENCH_SLOTS[1], BENCH_TOP);
+        hammerFx(BENCH_X + 45, BENCH_SLOTS[1], BENCH_TOP);
+        block("export", "fail", SIDING_X + 55, SIDING_Y + 40, SIDING_H);
+        dock(9);
+      }
+    },
+    complete: {
+      lamp: HEX.ok, pr: true,
+      kpi: { accepted: "14/15", pct: "93% complete", flight: "0", esc: "1", elapsed: "47m", eta: "done" },
+      caption: "<strong>14/15</strong> units migrated and verified autonomously · <strong>1</strong> escalated · <strong>47</strong> min",
+      build: function () {
+        dock(14);
+        block("export", "fail", SIDING_X + 55, SIDING_Y + 40, SIDING_H);
+      }
+    }
+  };
+
+  function setTxt(id, v) { document.getElementById(id).textContent = v; }
+  function applyKpis(k) {
+    if (!k) return;
+    setTxt("k-accepted", k.accepted); setTxt("k-accepted-sub", k.pct);
+    setTxt("k-flight", k.flight);
+    setTxt("k-esc", k.esc); document.getElementById("k-esc").classList.toggle("hot", k.esc !== "0");
+    setTxt("k-elapsed", k.elapsed); setTxt("k-eta", k.eta);
+  }
+
+  function setState(name) {
+    var st = STATES[name];
+    clearScene();
+    st.build();
+    gateLamp.setAttribute("fill", st.lamp);
+    prStation.setAttribute("class", "prism" + (st.pr ? " lit" : ""));
+    scene.setAttribute("class", st.dim ? "dimmed" : "");
+    caption.innerHTML = st.caption;
+    applyKpis(st.kpi);
+    document.querySelectorAll(".state-btn").forEach(function (b) {
+      b.classList.toggle("on", b.dataset.state === name);
+    });
+  }
+
+  document.querySelectorAll(".state-btn").forEach(function (b) {
+    b.addEventListener("click", function () { setState(b.dataset.state); });
+  });
+
+  /* yard size toggle */
+  var yardBtn = document.getElementById("yardToggle");
+  yardBtn.addEventListener("click", function () {
+    yardMode = yardMode === "large" ? "small" : "large";
+    yardBtn.textContent = "yard: " + yardMode;
+    renderLegend();
+    var active = document.querySelector(".state-btn.on");
+    setState(active ? active.dataset.state : "idle");
+  });
+
+  /* ---------- review chat panel ---------- */
+  var chat = document.getElementById("chatPanel");
+  function openChat(cat) {
+    document.getElementById("chatPath").textContent =
+      cat === "export" ? "src/exporter.py" : "src/" + cat + ".py";
+    chat.classList.add("open");
+  }
+  document.getElementById("chatClose").addEventListener("click", function () {
+    chat.classList.remove("open");
+  });
+
+  /* ---------- play: build → ship ---------- */
+  function glide(g, x, y, z, ms) {
+    return new Promise(function (resolve) {
+      if (reduced) { moveTo(g, x, y, z); resolve(); return; }
+      g.style.transition = "transform " + ms + "ms linear";
+      requestAnimationFrame(function () { moveTo(g, x, y, z); setTimeout(resolve, ms + 20); });
+    });
+  }
+  function pause(ms) { return new Promise(function (r) { setTimeout(r, reduced ? 0 : ms); }); }
+
+  var playing = false;
+  document.getElementById("play").addEventListener("click", function () {
+    if (playing) return;
+    playing = true;
+    setState("running");
+    var y = BENCH_SLOTS[1];
+    var t = block("data", "queued", BELT_X0, BELT_Y, 4, gFx);
+    caption.innerHTML = "<strong>U-11</strong> (data) dispatched — riding the conveyor to the bench";
+    glide(t, BENCH_X + 45, y, BENCH_TOP, 1200)
+      .then(function () {
+        setStatus(t, "run"); gateLamp.setAttribute("fill", HEX.run);
+        var fx = hammerFx(BENCH_X + 45, y, BENCH_TOP);
+        caption.innerHTML = "<strong>U-11</strong> on the bench — editing, running tests, polishing";
+        return pause(1400).then(function () { fx.remove(); });
+      })
+      .then(function () {
+        gateLamp.setAttribute("fill", HEX.ok);
+        caption.innerHTML = "<strong>U-11</strong> passed the gate — 6/6 tests. Shipping.";
+        setStatus(t, "ok");
+        return glide(t, DOCK_X + 20, DOCK_Y + 16, DOCK_H, 1100);
+      })
+      .then(function () { caption.innerHTML = "<strong>U-11</strong> stacked on the shipping dock, ready for the PR."; playing = false; });
+  });
+
+  /* fit viewBox to drawn content (measure densest state) */
+  renderLegend();
+  setState("running");
+  var bb = scene.getBBox();
+  scene.setAttribute("viewBox",
+    (bb.x - 24).toFixed(0) + " " + (bb.y - 24).toFixed(0) + " " +
+    (bb.width + 48).toFixed(0) + " " + (bb.height + 48).toFixed(0));
+  setState("idle");
+})();
+</script>
+<script>
+(function () {
+  var shell = document.querySelector(".shell");
+  try { if (localStorage.getItem("mf-sb-min") === "1") shell.classList.add("sb-min"); } catch (e) {}
+  window.mfToggleSidebar = function () {
+    shell.classList.toggle("sb-min");
+    try { localStorage.setItem("mf-sb-min", shell.classList.contains("sb-min") ? "1" : "0"); } catch (e) {}
+  };
+})();
+</script>
+</body>
+</html>

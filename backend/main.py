@@ -4,7 +4,9 @@ REST: POST /repo, GET /repo/{id}/candidates, POST /repo/{id}/seam,
       POST /campaign, GET /campaign/{id}, POST /campaign/{id}/finalize
 WS:   /ws/campaign/{id} (server -> client events only)
 
-Flagged contract additions (need team approval, section 13):
+Flagged contract additions (section 13 sign-off recorded; see
+frontend_refactor.md for the frontend redesign that motivated the Phase 8/9
+items):
 - GET /repo/{id}/graph serves dependency-graph nodes/edges for the frontend's
   React Flow views; section 7 defines the graph visually but gives it no
   endpoint.
@@ -12,18 +14,31 @@ Flagged contract additions (need team approval, section 13):
   Discovery and Autonomous modes): a natural-language objective goes in,
   grounded candidate seams come out, and human-confirmed seams feed the
   existing seam -> campaign pipeline.
+- Phase 8 (G1-G5): seams.title/plan persisted by POST /repo/{id}/seam and
+  returned via GET /campaign/{id} (which now also embeds repoId + the full
+  seam); GET /campaigns (server-backed history list); GET /campaign/{id}/
+  events (unit_events read API); campaigns.completed_at set by the engine.
+- Phase 9: conversational chat scoped to a campaign (chat.py) --
+  GET/POST /campaign/{id}/chat and the one re-dispatch action, POST
+  /campaign/{id}/chat/retry-unit/{unitId}.
+- G7 (frontend_refactor.md): POST /repo/upload ingests a browser-picked local
+  folder (multipart upload, reconstructed + git-init'd server-side) through
+  the same candidate/discovery pipeline as a clone.
 """
 
 import asyncio
+import json
 import logging
 import uuid
+from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
+import chat
 import config
 import db
 import llm
@@ -114,6 +129,37 @@ async def health() -> dict[str, str]:
         return {"status": "degraded", "db": "unavailable", "llm": llm.describe()}
 
 
+# FLAGGED contract addition (frontend Phase 2, model selector): read-only,
+# additive, no schema change — lists every selectable model, grouped by
+# provider, for every provider with an API key set, plus a static "usage"
+# tier per model (llm._MODEL_CATALOG) so the landing page composer can offer
+# a real choice — with a sense of relative quota/cost — instead of a
+# decorative pill. Under MOCK_CODEX there is nothing to choose between.
+@app.get("/llm/providers", response_model=models.LlmProvidersOut)
+async def llm_providers() -> models.LlmProvidersOut:
+    if config.MOCK_CODEX:
+        return models.LlmProvidersOut(
+            providers=[models.LlmProviderOut(name="mock", models=[models.LlmModelOut(model="mock", usage="low")])],
+            active="mock",
+        )
+    grouped: dict[str, list[models.LlmModelOut]] = {}
+    for entry in llm.list_models():
+        grouped.setdefault(entry.provider, []).append(
+            models.LlmModelOut(model=entry.model, usage=entry.usage)
+        )
+    try:
+        active = llm.active_provider().model
+    except llm.LlmError:
+        active = None
+    return models.LlmProvidersOut(
+        providers=[
+            models.LlmProviderOut(name=name, models=model_list)
+            for name, model_list in grouped.items()
+        ],
+        active=active,
+    )
+
+
 # --- Repo ingestion -----------------------------------------------------
 
 
@@ -137,41 +183,175 @@ async def create_repo(body: models.RepoIn, request: Request) -> models.RepoOut:
     clone_url = await github_service.authenticated_clone_url(session_id, body.repoUrl)
 
     # Clone synchronously: the contract has no repo polling endpoint, so the
-    # response must already carry the terminal ready/failed status.
+    # response must already carry the terminal ready/failed status. Retry a few
+    # times: this Docker Desktop / WSL2 host drops ~1 in 4 TCP connects to
+    # GitHub (packet loss on the host network path, not an IP/MTU issue — see
+    # the MTU note in docker-compose.yml), so a single attempt fails
+    # intermittently even when the repo URL and credentials are perfectly fine.
+    # HTTP/1.1 avoids the separate HTTP/2 mid-transfer stall on the same path.
     def clone() -> None:
+        import shutil
         from git import Repo as GitRepo
+        from git.exc import GitCommandError
 
-        if body.branch:
-            GitRepo.clone_from(clone_url, dest, branch=body.branch)
-        else:
-            GitRepo.clone_from(clone_url, dest)
+        max_attempts = 4
+        opts = ["-c", "http.version=HTTP/1.1"]
+        last_exc: Exception | None = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                # GitPython treats -c as an "unsafe option" it refuses to pass
+                # through by default (regardless of source trust) -- must be
+                # explicitly allowed or clone_from raises before git even runs.
+                if body.branch:
+                    GitRepo.clone_from(
+                        clone_url, dest, branch=body.branch,
+                        multi_options=opts, allow_unsafe_options=True,
+                    )
+                else:
+                    GitRepo.clone_from(
+                        clone_url, dest, multi_options=opts, allow_unsafe_options=True,
+                    )
+                return
+            except GitCommandError as exc:
+                last_exc = exc
+                logger.warning(
+                    "Repo %s clone attempt %d/%d failed: %s",
+                    repo_id, attempt, max_attempts, exc,
+                )
+                # A partial clone leaves a non-empty dest that the next attempt
+                # would refuse — clear it before retrying.
+                shutil.rmtree(dest, ignore_errors=True)
+        if last_exc is not None:
+            raise last_exc
 
     try:
         await asyncio.to_thread(clone)
         status = "ready"
         logger.info("Repo %s ingested from %s", repo_id, body.repoUrl)
-        repo_conf = load_repo_config(dest)
-        extra_blacklist = (repo_conf or {}).get("blacklist")
-        await asyncio.to_thread(
-            discovery.compute_candidates, repo_id, dest, extra_blacklist
-        )
-        # Bootstrap the project profile now, before seam discovery ever runs.
-        # No Migration Foreman file is required for this: metadata is only
-        # detected (a prior .migration-foreman/ from an earlier successful
-        # campaign against this same clone) as an optional cache hit; absent
-        # that, the profile is inferred entirely from what's on disk.
-        metadata = await asyncio.to_thread(profiler.detect_metadata, dest)
-        profile, from_cache = await asyncio.to_thread(profiler.get_or_build_profile, repo_id, dest)
-        logger.info(
-            "Repo %s profile %s (metadata found: %s)",
-            repo_id, "loaded from cache" if from_cache else "inferred fresh", metadata,
-        )
+        await _bootstrap_repo(repo_id, dest)
     except Exception as exc:
         status = "failed"
         logger.error("Repo %s ingestion failed: %s", repo_id, exc)
 
     await db.execute("UPDATE repos SET status = $1 WHERE repo_id = $2", status, repo_id)
     return models.RepoOut(repoId=repo_id, repoUrl=body.repoUrl, status=status)
+
+
+async def _bootstrap_repo(repo_id: str, dest: Path) -> None:
+    """Post-ingestion pipeline shared by clone (POST /repo) and upload
+    (POST /repo/upload): candidate discovery + the zero-config profile.
+
+    No Migration Foreman file is required for any of this: metadata is only
+    detected (a prior .migration-foreman/ from an earlier successful campaign
+    against this same clone) as an optional cache hit; absent that, the
+    profile is inferred entirely from what's on disk.
+    """
+    repo_conf = load_repo_config(dest)
+    extra_blacklist = (repo_conf or {}).get("blacklist")
+    await asyncio.to_thread(discovery.compute_candidates, repo_id, dest, extra_blacklist)
+    metadata = await asyncio.to_thread(profiler.detect_metadata, dest)
+    profile, from_cache = await asyncio.to_thread(profiler.get_or_build_profile, repo_id, dest)
+    logger.info(
+        "Repo %s profile %s (metadata found: %s)",
+        repo_id, "loaded from cache" if from_cache else "inferred fresh", metadata,
+    )
+
+
+_MAX_UPLOAD_FILES = 5000
+
+
+def _folder_name_from_upload(files: list[UploadFile]) -> str:
+    first = (files[0].filename or "").replace("\\", "/")
+    return first.split("/")[0] or "uploaded-folder"
+
+
+def _safe_upload_path(filename: str | None, dest: Path) -> Path:
+    """Reject anything that isn't a plain relative path under `dest` —
+    client-supplied filenames from a multipart upload are untrusted input."""
+    if not filename:
+        raise ApiError(400, "upload_invalid_path", "Uploaded file has no filename")
+    normalized = filename.replace("\\", "/")
+    parts = Path(normalized).parts
+    if Path(normalized).is_absolute() or any(p in ("..", "") for p in parts):
+        raise ApiError(400, "upload_invalid_path", f"Unsafe path in upload: {filename!r}")
+    # Drop the top-level folder component (webkitRelativePath includes it) so
+    # files land directly under dest.
+    rel_parts = parts[1:] if len(parts) > 1 else parts
+    if not rel_parts:
+        raise ApiError(400, "upload_invalid_path", f"Unsafe path in upload: {filename!r}")
+    candidate = (dest / Path(*rel_parts)).resolve()
+    dest_resolved = dest.resolve()
+    if candidate != dest_resolved and dest_resolved not in candidate.parents:
+        raise ApiError(400, "upload_invalid_path", f"Path escapes upload root: {filename!r}")
+    return candidate
+
+
+@app.post("/repo/upload", response_model=models.RepoOut)
+async def upload_repo(files: list[UploadFile] = File(...)) -> models.RepoOut:
+    """G7 (frontend_refactor.md) — ingest a browser-picked local folder.
+
+    A `webkitdirectory` file input hands the browser `File` blobs with
+    relative paths, never a filesystem path the container can see and never
+    git history. The tree is reconstructed here and git-init'd fresh with one
+    commit, then the existing candidate/discovery pipeline runs unchanged.
+    `recentActivityScore` (discovery/ranking.py) has nothing to differentiate
+    on with a single bootstrap commit -- every file gets the same weight, so
+    centrality ends up dominating ranking for uploaded repos. That's a real,
+    known limitation of not having history, not a crash or a silent mask.
+    """
+    import shutil
+
+    if not files:
+        raise ApiError(400, "upload_empty", "No files were uploaded")
+    if len(files) > _MAX_UPLOAD_FILES:
+        raise ApiError(
+            400, "upload_too_large", f"Too many files in upload (max {_MAX_UPLOAD_FILES})"
+        )
+
+    folder_name = _folder_name_from_upload(files)
+    row = await db.fetchrow(
+        "INSERT INTO repos (repo_url, status) VALUES ($1, 'pulling') RETURNING repo_id",
+        f"upload://{folder_name}",
+    )
+    repo_id = str(row["repo_id"])
+    dest = _repo_path(repo_id)
+
+    try:
+        dest.mkdir(parents=True, exist_ok=True)
+        for upload in files:
+            target = _safe_upload_path(upload.filename, dest)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            content = await upload.read()
+            target.write_bytes(content)
+
+        def git_init() -> None:
+            from execution.worktree import GIT_IDENTITY
+            from shell import run_git
+
+            result = run_git(["init"], cwd=dest)
+            if not result.ok:
+                raise RuntimeError(f"git init failed: {result.output}")
+            run_git(["add", "-A"], cwd=dest)
+            result = run_git(
+                [*GIT_IDENTITY, "commit", "--allow-empty", "-m", "Initial import (uploaded folder)"],
+                cwd=dest,
+            )
+            if not result.ok:
+                raise RuntimeError(f"initial commit failed: {result.output}")
+
+        await asyncio.to_thread(git_init)
+        status = "ready"
+        logger.info(
+            "Repo %s ingested from uploaded folder %r (%d files)", repo_id, folder_name, len(files)
+        )
+        await _bootstrap_repo(repo_id, dest)
+    except Exception as exc:
+        status = "failed"
+        logger.error("Repo %s upload ingestion failed: %s", repo_id, exc)
+        shutil.rmtree(dest, ignore_errors=True)
+
+    await db.execute("UPDATE repos SET status = $1 WHERE repo_id = $2", status, repo_id)
+    return models.RepoOut(repoId=repo_id, repoUrl=f"upload://{folder_name}", status=status)
 
 
 async def _get_ready_repo(repo_id: str):
@@ -243,8 +423,12 @@ async def get_graph(repo_id: str) -> models.GraphOut:
 async def discover_seams(repo_id: str, body: models.DiscoverIn) -> models.DiscoveryOut:
     """FLAGGED contract addition — AI Seam Discovery.
 
-    A high-level engineering objective goes in ("Modernize authentication");
-    a read-only repository analysis plus grounded candidate seams come out.
+    A high-level engineering objective goes in — anything from a full
+    request down to an empty string. It only biases which repository-driven
+    migration opportunity ranks first; it is never required, and it is
+    never converted directly into a pattern (see planning/seam_discovery.py
+    for the staged idea -> per-idea grounding pipeline this enables). A
+    read-only repository analysis plus grounded candidate seams come out.
     The result is advisory and stateless: nothing is written and nothing
     executes. The client presents the seams for human approval and submits
     each approved seam through the existing POST /repo/{id}/seam ->
@@ -252,21 +436,21 @@ async def discover_seams(repo_id: str, body: models.DiscoverIn) -> models.Discov
     """
     row = await _get_ready_repo(repo_id)
     repo_id = str(row["repo_id"])
-    if not body.objective.strip():
-        raise ApiError(400, "discovery_objective_invalid", "objective must be a non-empty string")
-
     repo_path = _repo_path(repo_id)
     try:
         discovery_result = await asyncio.to_thread(
-            seam_discovery.discover_seams, repo_path, body.objective
+            seam_discovery.discover_seams, repo_path, body.objective, body.model
         )
     except seam_discovery.DiscoveryError as exc:
         raise ApiError(502, "seam_discovery_failed", str(exc))
 
-    # Verification command inference: model suggestion wins; otherwise a
-    # seam-scoped inferred command (monorepo-aware). Still-None commands are
-    # a legal outcome — the UI requires the human to fill them before any
-    # mode (including Autonomous) can execute that seam.
+    # Verification command: always grounded inference (repo_config.py),
+    # never the model — planner._validate() already forces testCommand to
+    # None for every seam, so this always runs. A seam-scoped (monorepo-
+    # aware) command is inferred from the repository's actual manifests;
+    # still-None commands are a legal outcome — the UI requires the human
+    # to fill them in before any mode (including Autonomous) can execute
+    # that seam, which is correct when the repo genuinely has no test setup.
     for seam in discovery_result["seams"]:
         if seam["testCommand"] is None:
             seam["testCommand"] = infer_test_command_for_files(
@@ -334,9 +518,12 @@ async def create_seam(repo_id: str, body: models.SeamIn) -> models.SeamOut:
             )
 
     seam_row = await db.fetchrow(
-        "INSERT INTO seams (repo_id, scope_globs, before_pattern, after_pattern, invariants, test_command) "
-        "VALUES ($1, $2, $3, $4, $5, $6) RETURNING seam_id",
+        "INSERT INTO seams (repo_id, scope_globs, before_pattern, after_pattern, invariants, "
+        "test_command, title, plan, provider) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9) "
+        "RETURNING seam_id",
         repo_id, scope_globs, before, after, invariants, test_command,
+        body.title, json.dumps(body.plan) if body.plan is not None else None,
+        body.model,
     )
     return models.SeamOut(
         seamId=str(seam_row["seam_id"]),
@@ -345,10 +532,52 @@ async def create_seam(repo_id: str, body: models.SeamIn) -> models.SeamOut:
         afterPattern=after,
         invariants=invariants,
         testCommand=test_command,
+        title=body.title,
+        plan=body.plan,
+        provider=body.model,
     )
 
 
 # --- Campaigns ----------------------------------------------------------
+
+
+@app.get("/campaigns", response_model=models.CampaignsListOut)
+async def list_campaigns() -> models.CampaignsListOut:
+    """G3 (frontend_refactor.md Phase 8) — server-backed campaign history for
+    the sidebar widget, replacing the per-browser localStorage list."""
+    rows = await db.fetch(
+        """
+        SELECT
+            c.campaign_id, c.status, c.created_at, c.completed_at,
+            s.repo_id, s.title AS seam_title, r.repo_url,
+            COUNT(u.unit_id) AS unit_count,
+            COUNT(u.unit_id) FILTER (WHERE u.status = 'passed') AS accepted_units,
+            COUNT(u.unit_id) FILTER (WHERE u.status = 'escalated') AS escalated_units
+        FROM campaigns c
+        JOIN seams s ON s.seam_id = c.seam_id
+        JOIN repos r ON r.repo_id = s.repo_id
+        LEFT JOIN units u ON u.campaign_id = c.campaign_id
+        GROUP BY c.campaign_id, s.repo_id, s.title, r.repo_url
+        ORDER BY c.created_at DESC
+        """
+    )
+    return models.CampaignsListOut(
+        campaigns=[
+            models.CampaignSummaryOut(
+                campaignId=str(row["campaign_id"]),
+                title=row["seam_title"],
+                status=row["status"],
+                repoId=str(row["repo_id"]),
+                repoUrl=row["repo_url"],
+                createdAt=row["created_at"].isoformat(),
+                completedAt=row["completed_at"].isoformat() if row["completed_at"] else None,
+                unitCount=row["unit_count"],
+                acceptedUnits=row["accepted_units"],
+                escalatedUnits=row["escalated_units"],
+            )
+            for row in rows
+        ]
+    )
 
 
 @app.post("/campaign", response_model=models.CampaignCreatedOut)
@@ -402,11 +631,29 @@ async def create_campaign(body: models.CampaignIn) -> models.CampaignCreatedOut:
         "afterPattern": seam_row["after_pattern"],
         "invariants": list(seam_row["invariants"] or []),
         "testCommand": seam_row["test_command"],
+        # G8: the model selector's choice at seam-creation time, threaded down
+        # through engine -> gate -> codex.migrate_file for every unit/retry on
+        # this campaign. None = no explicit choice, env default applies.
+        "provider": seam_row["provider"],
     }
     asyncio.create_task(engine.run_campaign(campaign_id, seam, repo_path))
 
     return models.CampaignCreatedOut(
         campaignId=campaign_id, status="running", unitCount=len(unit_files)
+    )
+
+
+def _seam_out(seam_row) -> models.SeamOut:
+    return models.SeamOut(
+        seamId=str(seam_row["seam_id"]),
+        scopeGlobs=list(seam_row["scope_globs"]),
+        beforePattern=seam_row["before_pattern"],
+        afterPattern=seam_row["after_pattern"],
+        invariants=list(seam_row["invariants"] or []),
+        testCommand=seam_row["test_command"],
+        title=seam_row["title"],
+        plan=db.parse_jsonb(seam_row["plan"]),
+        provider=seam_row["provider"],
     )
 
 
@@ -419,7 +666,10 @@ async def get_campaign(campaign_id: str) -> models.CampaignOut:
     units = await db.fetch(
         "SELECT * FROM units WHERE campaign_id = $1 ORDER BY created_at", campaign_id
     )
-    seam = await db.fetchrow("SELECT test_command FROM seams WHERE seam_id = $1", campaign["seam_id"])
+    # G1: the full seam row (not just test_command) plus its repo_id, so a
+    # reloaded/foreign browser can reach the graph and render the Plan page
+    # from the server instead of localStorage.
+    seam = await db.fetchrow("SELECT * FROM seams WHERE seam_id = $1", campaign["seam_id"])
     return models.CampaignOut(
         campaignId=campaign_id,
         seamId=str(campaign["seam_id"]),
@@ -436,6 +686,60 @@ async def get_campaign(campaign_id: str) -> models.CampaignOut:
             )
             for unit in units
         ],
+        repoId=str(seam["repo_id"]) if seam else "",
+        seam=_seam_out(seam) if seam else models.SeamOut(
+            seamId=str(campaign["seam_id"]), scopeGlobs=[], beforePattern="",
+            afterPattern="", invariants=[], testCommand="",
+        ),
+        createdAt=campaign["created_at"].isoformat(),
+        completedAt=campaign["completed_at"].isoformat() if campaign["completed_at"] else None,
+    )
+
+
+_EVENTS_DEFAULT_LIMIT = 500
+_EVENTS_MAX_LIMIT = 2000
+
+
+@app.get("/campaign/{campaign_id}/events", response_model=models.CampaignEventsOut)
+async def get_campaign_events(
+    campaign_id: str, limit: int = _EVENTS_DEFAULT_LIMIT, offset: int = 0
+) -> models.CampaignEventsOut:
+    """G4 (frontend_refactor.md Phase 8) — unit_events read API, ordered
+    oldest-first, so Log backfill and Overview replay can use the real
+    history instead of a synthesized approximation from final unit states."""
+    campaign_id = _require_uuid(campaign_id, "campaign_not_found")
+    campaign = await db.fetchrow("SELECT campaign_id FROM campaigns WHERE campaign_id = $1", campaign_id)
+    if campaign is None:
+        raise ApiError(404, "campaign_not_found", f"No campaign with id {campaign_id}")
+
+    limit = max(1, min(limit, _EVENTS_MAX_LIMIT))
+    offset = max(0, offset)
+    rows = await db.fetch(
+        """
+        SELECT e.id, e.unit_id, u.scope_glob, e.event_type, e.message, e.metadata, e.created_at
+        FROM unit_events e
+        JOIN units u ON u.unit_id = e.unit_id
+        WHERE u.campaign_id = $1
+        ORDER BY e.created_at ASC, e.id ASC
+        LIMIT $2 OFFSET $3
+        """,
+        campaign_id, limit, offset,
+    )
+    return models.CampaignEventsOut(
+        campaignId=campaign_id,
+        events=[
+            models.UnitEventOut(
+                eventId=str(row["id"]),
+                unitId=str(row["unit_id"]),
+                scopeGlob=row["scope_glob"],
+                eventType=row["event_type"],
+                message=row["message"],
+                metadata=db.parse_jsonb(row["metadata"]),
+                createdAt=row["created_at"].isoformat(),
+            )
+            for row in rows
+        ],
+        nextOffset=offset + limit if len(rows) == limit else None,
     )
 
 
@@ -587,6 +891,51 @@ async def finalize_campaign(
         prUrl=pr_url,
         acceptedUnits=len(ctx["accepted"]),
         escalatedUnits=len(ctx["escalated"]),
+    )
+
+
+# --- Chat (Phase 9, frontend_refactor.md) --------------------------------
+
+
+@app.get("/campaign/{campaign_id}/chat", response_model=models.ChatHistoryOut)
+async def get_campaign_chat(campaign_id: str) -> models.ChatHistoryOut:
+    campaign_id = _require_uuid(campaign_id, "campaign_not_found")
+    campaign = await db.fetchrow("SELECT campaign_id FROM campaigns WHERE campaign_id = $1", campaign_id)
+    if campaign is None:
+        raise ApiError(404, "campaign_not_found", f"No campaign with id {campaign_id}")
+    return models.ChatHistoryOut(campaignId=campaign_id, messages=await chat.get_history(campaign_id))
+
+
+@app.post("/campaign/{campaign_id}/chat", response_model=models.ChatTurnOut)
+async def post_campaign_chat(campaign_id: str, body: models.ChatMessageIn) -> models.ChatTurnOut:
+    campaign_id = _require_uuid(campaign_id, "campaign_not_found")
+    try:
+        user_message, assistant_message = await chat.reply(campaign_id, body.message, body.unitRef)
+    except chat.ChatError as exc:
+        raise ApiError(502, "chat_reply_failed", str(exc))
+    return models.ChatTurnOut(
+        campaignId=campaign_id, userMessage=user_message, assistantMessage=assistant_message
+    )
+
+
+@app.post("/campaign/{campaign_id}/chat/retry-unit/{unit_id}", response_model=models.ChatRetryUnitOut)
+async def retry_unit_from_chat(campaign_id: str, unit_id: str) -> models.ChatRetryUnitOut:
+    """The Phase 9 re-dispatch action: retry one escalated/blocked/
+    generation_failed/system_error unit through the same verification gate
+    the campaign run used, triggered explicitly from the chat UI."""
+    campaign_id = _require_uuid(campaign_id, "campaign_not_found")
+    unit_id = _require_uuid(unit_id, "unit_not_found")
+    unit_row, system_message = await chat.retry_unit(campaign_id, unit_id)
+    return models.ChatRetryUnitOut(
+        unit=models.UnitOut(
+            unitId=str(unit_row["unit_id"]),
+            scopeGlob=unit_row["scope_glob"],
+            status=unit_row["status"],
+            attempt=unit_row["attempt"],
+            diff=unit_row["diff"],
+            failureLog=unit_row["failure_log"],
+        ),
+        systemMessage=system_message,
     )
 
 

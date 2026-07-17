@@ -65,3 +65,15 @@ services:
 
 volumes:
   postgres_data:
+
+# The default bridge inherits the host's 1500 MTU, but the Docker Desktop /
+# WSL2 path to the internet can't carry full-size frames and PMTU discovery is
+# blackholed — so small requests succeed while large transfers (git clone pack
+# data, TLS cert exchange, Google-Font .woff2 downloads) stall and time out.
+# Clamping the network MTU to 1400 makes every packet fit end to end.
+# Apply with `docker compose down && docker compose up -d` (recreates the net).
+networks:
+  default:
+    driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: "1400"

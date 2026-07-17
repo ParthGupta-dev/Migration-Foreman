@@ -42,6 +42,31 @@ class Provider:
     api: str = "chat"  # "responses" (OpenAI Codex) or "chat" (everything else)
 
 
+@dataclass(frozen=True)
+class ModelInfo:
+    provider: str
+    model: str
+    usage: str  # "low" | "mid" | "high" -- see _MODEL_CATALOG
+
+
+# Curated per-provider model catalog for the frontend's model selector
+# (GET /llm/providers). `usage` is a static, hand-maintained tier -- not a
+# live quota reading -- meant to help a human avoid picking something that
+# burns through a rate-limited/metered plan too fast: "low" = small/fast/
+# cheap, "mid" = balanced, "high" = large flagship, heaviest on quota and
+# latency. Update this list if a provider retires/renames a model.
+_MODEL_CATALOG: list[ModelInfo] = [
+    ModelInfo("groq", "llama-3.1-8b-instant", "low"),
+    ModelInfo("groq", "openai/gpt-oss-20b", "mid"),
+    ModelInfo("groq", "llama-3.3-70b-versatile", "high"),
+    ModelInfo("groq", "openai/gpt-oss-120b", "high"),
+    ModelInfo("codex", "gpt-5-mini", "low"),
+    ModelInfo("codex", "gpt-4.1", "mid"),
+    ModelInfo("codex", "gpt-5", "high"),
+    ModelInfo("codex", "gpt-5-codex", "high"),
+]
+
+
 def _known_providers() -> dict[str, Provider]:
     providers = {
         "codex": Provider(
@@ -60,8 +85,55 @@ def _known_providers() -> dict[str, Provider]:
     return providers
 
 
-def active_provider() -> Provider:
+def list_providers() -> list[Provider]:
+    """Every provider with an API key set. Order matches the env-precedence
+    order (codex, groq, custom) so the first entry is the default one."""
+    return [p for p in _known_providers().values() if p.api_key]
+
+
+def list_models() -> list[ModelInfo]:
+    """Every selectable model across providers with a configured API key —
+    what GET /llm/providers offers the frontend's model selector. The
+    "custom" provider (LLM_PROVIDER=<name>) has no curated catalog entry
+    (its model is arbitrary), so it's surfaced as its own single configured
+    model at a "mid" usage tier."""
+    configured = {p.name for p in list_providers()}
+    models = [m for m in _MODEL_CATALOG if m.provider in configured]
+    for provider in _known_providers().values():
+        if provider.name not in ("codex", "groq") and provider.api_key:
+            models.append(ModelInfo(provider.name, provider.model, "mid"))
+    return models
+
+
+def _provider_for_model(model: str) -> str | None:
+    for entry in _MODEL_CATALOG:
+        if entry.model == model:
+            return entry.provider
+    for provider in _known_providers().values():
+        if provider.name not in ("codex", "groq") and provider.model == model:
+            return provider.name
+    return None
+
+
+def active_provider(model: str | None = None) -> Provider:
+    """Resolve which provider (and model) serves a request.
+
+    `model`, when given, is an explicit caller override (e.g. the frontend's
+    model selector) — it must be one of list_models()'s model strings. The
+    provider that hosts it is looked up automatically, so callers only ever
+    need to think in terms of models, not providers. Without an override,
+    falls back to LLM_PROVIDER env or the codex/groq/custom precedence, as
+    before (that provider's own env-configured default model).
+    """
     providers = _known_providers()
+
+    if model:
+        provider_name = _provider_for_model(model)
+        base = providers.get(provider_name) if provider_name else None
+        if base is None:
+            raise LlmError(f"Unknown or unconfigured model: {model!r}")
+        _check(base)
+        return Provider(base.name, base.api_key, model, base.base_url, base.api)
 
     if config.LLM_PROVIDER:
         provider = providers.get(config.LLM_PROVIDER)
@@ -73,8 +145,8 @@ def active_provider() -> Provider:
         _check(provider)
         return provider
 
-    for name in providers:  # codex first, then groq, then custom
-        provider = providers[name]
+    for provider_name in providers:  # codex first, then groq, then custom
+        provider = providers[provider_name]
         if provider.api_key:
             _check(provider)
             return provider
@@ -102,21 +174,29 @@ def describe() -> str:
         return "unconfigured"
 
 
-def complete(prompt: str, json_mode: bool = False) -> str:
-    """One-shot completion via whichever provider the env selects.
+def complete(prompt: str, json_mode: bool = False, model: str | None = None) -> str:
+    """One-shot completion via whichever provider the env selects (or the
+    caller's explicit `model` override — see active_provider()).
 
     json_mode=True requests the provider's native structured-output mode
     (`response_format: json_object` on chat completions, the text format on
     the Responses API). Providers/models that reject the parameter fall back
     to a plain completion — callers still get text either way.
     """
-    provider = active_provider()
+    provider = active_provider(model)
     try:
         from openai import OpenAI, RateLimitError
     except ImportError as exc:
         raise LlmError(f"openai package not installed: {exc}") from exc
 
-    client = OpenAI(api_key=provider.api_key, base_url=provider.base_url)
+    # max_retries=0: the SDK's own retry/backoff would otherwise run *inside*
+    # invoke() before RateLimitError ever reaches the loop below, stacking a
+    # second, provider-agnostic backoff on top of the provider-aware one
+    # here (which parses Groq's actual "try again in Xs" delay). Left at the
+    # SDK default (2), a single rate-limited call could sleep through two
+    # internal retries and then all of _RATE_LIMIT_RETRIES again -- easily
+    # minutes per call, which is what made Autonomous mode look hung.
+    client = OpenAI(api_key=provider.api_key, base_url=provider.base_url, max_retries=0)
 
     def invoke(use_json: bool) -> str:
         if provider.api == "responses":
@@ -220,7 +300,7 @@ def _extract_json(text: str):
     raise ValueError("no parseable JSON object found in model output")
 
 
-def complete_json(prompt: str):
+def complete_json(prompt: str, model: str | None = None):
     """Completion that must yield JSON, robust to sloppy model output.
 
     Strategy: ask with the provider's JSON mode; parse leniently (fences and
@@ -232,7 +312,7 @@ def complete_json(prompt: str):
     last_error: Exception | None = None
     current_prompt = prompt
     for attempt in (1, 2):
-        text = complete(current_prompt, json_mode=True)
+        text = complete(current_prompt, json_mode=True, model=model)
         logger.debug("Raw model JSON output (attempt %d): %r", attempt, text)
         try:
             return _extract_json(text)

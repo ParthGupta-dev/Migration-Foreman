@@ -26,6 +26,7 @@ import time
 from pathlib import Path
 
 import config
+import repo_config
 from discovery import parser
 
 logger = logging.getLogger("migration_foreman.profiler")
@@ -168,13 +169,12 @@ def _test_framework(root: Path, manifests: list[str]) -> str | None:
                 return name
         if '"test"' in pkg_text:
             return "npm test script"
-    if any(m in manifests for m in ("pyproject.toml", "poetry.lock", "requirements.txt", "setup.py", "setup.cfg", "tox.ini")) or (root / "pytest.ini").is_file():
-        pyproject = _read(root / "pyproject.toml")
-        req = _read(root / "requirements.txt")
-        if (root / "pytest.ini").is_file() or "pytest" in pyproject or "pytest" in req:
-            return "pytest"
-    if (root / "tests").is_dir() or (root / "test").is_dir():
-        return "unittest"
+    # Same detection repo_config.py uses to build the actual verification
+    # command -- one authoritative answer, so the profile shown to the
+    # model and the command that actually runs never disagree.
+    python_style = repo_config.detect_python_test_style(root)
+    if python_style:
+        return python_style
     if "Cargo.toml" in manifests:
         return "cargo test"
     if "go.mod" in manifests:

@@ -4,7 +4,12 @@ import type {
   ApplyResult,
   Campaign,
   CampaignCreated,
+  CampaignEventsResponse,
+  CampaignsResponse,
   CandidatesResponse,
+  ChatHistory,
+  ChatPostResponse,
+  ChatRetryResponse,
   Discovery,
   FinalizeResult,
   GithubBranchesResponse,
@@ -12,6 +17,7 @@ import type {
   GithubStatus,
   GraphResponse,
   HealthResponse,
+  LlmProvidersResponse,
   Repo,
   Seam,
   SeamRequest,
@@ -62,14 +68,44 @@ export const api = {
   createRepo: (repoUrl: string, branch?: string) =>
     request<Repo>("POST", "/repo", branch ? { repoUrl, branch } : { repoUrl }),
 
+  // G7 (frontend_refactor.md): a browser-picked local folder, ingested via
+  // multipart upload — bypasses `request()` (JSON-only) since this needs a
+  // FormData body. `files` is a webkitdirectory input's FileList; each
+  // File's `webkitRelativePath` (e.g. "MyFolder/src/app.py") is preserved as
+  // the multipart part's filename so the backend can reconstruct the tree.
+  uploadRepo: async (files: FileList): Promise<Repo> => {
+    const form = new FormData();
+    for (const file of Array.from(files)) {
+      const relPath = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
+      form.append("files", file, relPath);
+    }
+    const res = await fetch(`${BACKEND_BASE_URL}/repo/upload`, {
+      method: "POST",
+      body: form,
+      credentials: "include",
+    });
+    if (!res.ok) {
+      let shape: ApiErrorShape;
+      try {
+        shape = await res.json();
+      } catch {
+        shape = { error: "unknown_error", message: res.statusText };
+      }
+      throw new ApiError(res.status, shape);
+    }
+    return res.json() as Promise<Repo>;
+  },
+
   getCandidates: (repoId: string) =>
     request<CandidatesResponse>("GET", `/repo/${repoId}/candidates`),
 
   getGraph: (repoId: string) =>
     request<GraphResponse>("GET", `/repo/${repoId}/graph`),
 
-  discoverSeams: (repoId: string, objective: string) =>
-    request<Discovery>("POST", `/repo/${repoId}/discover`, { objective }),
+  discoverSeams: (repoId: string, objective: string, model?: string | null) =>
+    request<Discovery>("POST", `/repo/${repoId}/discover`, model ? { objective, model } : { objective }),
+
+  llmProviders: () => request<LlmProvidersResponse>("GET", "/llm/providers"),
 
   createSeam: (repoId: string, body: SeamRequest) =>
     request<Seam>("POST", `/repo/${repoId}/seam`, body),
@@ -79,6 +115,31 @@ export const api = {
 
   getCampaign: (campaignId: string) =>
     request<Campaign>("GET", `/campaign/${campaignId}`),
+
+  // Server-backed campaign history (gap G3 now live) — powers a real,
+  // cross-browser sidebar history widget.
+  getCampaigns: () => request<CampaignsResponse>("GET", "/campaigns"),
+
+  // Real unit_events history (gap G4 now live), oldest-first + paginated —
+  // the Log page's backfill and the Overview replay build on this instead of
+  // synthesising a timeline from final unit states.
+  getCampaignEvents: (campaignId: string, limit = 500, offset = 0) =>
+    request<CampaignEventsResponse>(
+      "GET",
+      `/campaign/${campaignId}/events?limit=${limit}&offset=${offset}`
+    ),
+
+  // Conversational chat (Phase 9 backend now live). getChat returns history;
+  // postChat persists both turns and returns a real reply; retryUnit re-runs
+  // verification for one escalated/blocked/failed unit for real.
+  getChat: (campaignId: string) =>
+    request<ChatHistory>("GET", `/campaign/${campaignId}/chat`),
+
+  postChat: (campaignId: string, message: string, unitRef?: string | null) =>
+    request<ChatPostResponse>("POST", `/campaign/${campaignId}/chat`, unitRef ? { message, unitRef } : { message }),
+
+  retryUnit: (campaignId: string, unitId: string) =>
+    request<ChatRetryResponse>("POST", `/campaign/${campaignId}/chat/retry-unit/${unitId}`),
 
   getUnitPreview: (campaignId: string, unitId: string) =>
     request<UnitPreview>("GET", `/campaign/${campaignId}/unit/${unitId}/preview`),

@@ -8,9 +8,9 @@ appears.
 
 Generation lives in planning/seam_discovery.py (POST /repo/{id}/discover) —
 the one planning implementation shared by AI Discovery and Autonomous modes.
-This module supplies its `_validate` grounding pass and the `_mock_plan`
-offline stand-in (MOCK_CODEX=1 parses "migrate X to Y"-shaped intents
-directly so the pipeline runs without a key).
+This module supplies its `_validate` grounding pass plus the two
+"migrate X to Y" / "X -> Y" regexes seam_discovery's MOCK_CODEX=1 path uses
+to honor a directly-parseable intent without needing a key.
 """
 
 import logging
@@ -35,32 +35,6 @@ class PlanValidationError(Exception):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
-
-
-def _mock_plan(intent: str) -> dict:
-    match = _MOCK_INTENT.search(intent) or _MOCK_ARROW.search(intent)
-    if match is None:
-        raise ValueError(
-            "MOCK_CODEX planner could not parse the intent; phrase it like "
-            "'migrate <before> to <after>'"
-        )
-    before, after = match.group(1), match.group(2)
-    return {
-        "migrationName": f"{before} -> {after}",
-        "beforePattern": before,
-        "afterPattern": after,
-        "scopeGlobs": [],  # validation grounds scope in actual occurrences
-        "invariants": ["All existing tests pass"],
-        "testCommand": None,
-        "risk": None,  # derived from grounding during validation
-        "breakingChanges": True,  # a rename breaks any un-migrated call site
-        "confidence": 0.6,
-        "reasoning": (
-            f"MOCK_CODEX: the intent asks to move every use of {before!r} to "
-            f"{after!r}, so call sites still on the old name would break once "
-            "it is removed."
-        ),
-    }
 
 
 def _validate(
@@ -144,9 +118,14 @@ def _validate(
     invariants = plan.get("invariants") or []
     if not isinstance(invariants, list):
         invariants = []
-    test_command = plan.get("testCommand")
-    if not isinstance(test_command, str) or not test_command.strip():
-        test_command = None
+    # testCommand is never sourced from the model, even if one slips through
+    # in `plan` anyway: the LLM has no visibility into which test framework,
+    # scripts, or tooling this repository actually has, so any command it
+    # names is a guess and was observed to fail almost every unit (wrong
+    # cwd, nonexistent npm scripts, imagined TypeScript). Grounded inference
+    # (repo_config.infer_test_command_for_files) is the sole authority; the
+    # caller (main.py's /discover endpoint) fills this in after grounding.
+    test_command = None
 
     return {
         "migrationName": migration_name,
