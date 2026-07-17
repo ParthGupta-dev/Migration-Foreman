@@ -444,10 +444,13 @@ async def discover_seams(repo_id: str, body: models.DiscoverIn) -> models.Discov
     except seam_discovery.DiscoveryError as exc:
         raise ApiError(502, "seam_discovery_failed", str(exc))
 
-    # Verification command inference: model suggestion wins; otherwise a
-    # seam-scoped inferred command (monorepo-aware). Still-None commands are
-    # a legal outcome — the UI requires the human to fill them before any
-    # mode (including Autonomous) can execute that seam.
+    # Verification command: always grounded inference (repo_config.py),
+    # never the model — planner._validate() already forces testCommand to
+    # None for every seam, so this always runs. A seam-scoped (monorepo-
+    # aware) command is inferred from the repository's actual manifests;
+    # still-None commands are a legal outcome — the UI requires the human
+    # to fill them in before any mode (including Autonomous) can execute
+    # that seam, which is correct when the repo genuinely has no test setup.
     for seam in discovery_result["seams"]:
         if seam["testCommand"] is None:
             seam["testCommand"] = infer_test_command_for_files(

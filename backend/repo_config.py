@@ -18,6 +18,7 @@ Shape:
 """
 
 import json
+import re
 from pathlib import Path
 
 import config
@@ -103,42 +104,120 @@ def _infer_js(root: Path) -> str | None:
     return f"{runner} run {chosen}" + (" --silent" if runner == "npm" else "")
 
 
-def _has_python_tests(root: Path) -> bool:
-    for name in ("tests", "test"):
-        directory = root / name
-        if directory.is_dir() and any(directory.rglob("test*.py")):
-            return True
-    return (root / "conftest.py").is_file()
+def _read(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
 
 
-def _uses_pytest(root: Path) -> bool:
-    if (root / "pytest.ini").is_file() or (root / "conftest.py").is_file():
+# --- Python test-style detection (pytest vs unittest vs none) ------------
+#
+# Broader than a single requirements.txt/pyproject.toml check: dependency
+# declarations are scanned across every common requirements-file naming
+# convention (not just the exact name "requirements.txt"), and when no
+# manifest settles it, the test files THEMSELVES are inspected. A file full
+# of bare `def test_x(): assert ...` functions with no `unittest.TestCase`
+# subclass can only ever be collected by pytest, no matter what any
+# manifest says (or fails to say) -- `python -m unittest discover` will
+# silently find zero tests and exit non-zero, a real but misleading
+# failure that has nothing to do with the migration under test.
+
+_PYTEST_MARKER_RE = re.compile(r"^\s*(?:import pytest\b|from pytest\b|@pytest\.)", re.MULTILINE)
+_UNITTEST_CLASS_RE = re.compile(r"class\s+\w+\s*\(\s*(?:unittest\.)?TestCase\s*\)")
+_BARE_TEST_FUNC_RE = re.compile(r"^\s*def\s+test_\w+\s*\(", re.MULTILINE)
+_MAX_TEST_FILES_SAMPLED = 20
+
+
+def requirement_files(root: Path) -> list[Path]:
+    """Every requirements*.txt variant present, however dev/test deps are
+    conventionally named (requirements.txt, requirements-dev.txt,
+    dev-requirements.txt, requirements-test.txt, ...)."""
+    found: dict[str, Path] = {}
+    for pattern in ("requirements*.txt", "*-requirements.txt"):
+        for path in root.glob(pattern):
+            if path.is_file():
+                found[path.name] = path
+    return list(found.values())
+
+
+def _declares_pytest(root: Path) -> bool:
+    if any("pytest" in _read(path) for path in requirement_files(root)):
         return True
-    pyproject = root / "pyproject.toml"
-    if pyproject.is_file():
-        try:
-            content = pyproject.read_text(encoding="utf-8")
-        except OSError:
-            return False
-        return "[tool.pytest" in content or '"pytest"' in content or "'pytest'" in content
+    for name in ("Pipfile", "poetry.lock", "pyproject.toml"):
+        if "pytest" in _read(root / name):
+            return True
     return False
 
 
-def _infer_python(root: Path) -> str | None:
-    # pytest beats python -m pytest beats bare tox (tox spins up environments
-    # the worktree can't support); tox.ini only counts as a pytest signal.
-    python_signals = any(
-        (root / name).is_file()
-        for name in ("pyproject.toml", "poetry.lock", "requirements.txt",
-                     "setup.py", "setup.cfg", "tox.ini")
-    )
-    if (python_signals or _has_python_tests(root)) and _uses_pytest(root):
-        return "python -m pytest -q"
-    # Safe stdlib fallback: needs zero installed dependencies.
-    tests_dir = root / "tests"
-    if tests_dir.is_dir() and any(tests_dir.glob("test*.py")):
-        return "python -m unittest discover -s tests -t . -v"
-    return None
+def _python_test_files(root: Path) -> list[Path]:
+    files: list[Path] = []
+    for name in ("tests", "test"):
+        directory = root / name
+        if directory.is_dir():
+            files += list(directory.rglob("test*.py"))
+            files += list(directory.rglob("*_test.py"))
+    return files
+
+
+def detect_python_test_style(root: Path) -> str | None:
+    """'pytest' | 'unittest' | None (no Python tests found here).
+
+    Priority: explicit pytest config (pytest.ini, conftest.py, a
+    [tool.pytest]/[pytest] section) > the test files' own syntax (the most
+    grounded signal -- it's what will actually be collected) > a declared
+    pytest dependency > the safe stdlib-only unittest fallback.
+    """
+    if (root / "pytest.ini").is_file() or (root / "conftest.py").is_file():
+        return "pytest"
+    for name in ("pyproject.toml", "tox.ini", "setup.cfg"):
+        text = _read(root / name)
+        if "[tool.pytest" in text or "[pytest]" in text or "[tool:pytest]" in text:
+            return "pytest"
+
+    test_files = _python_test_files(root)
+    if not test_files:
+        return None
+
+    sample = "".join(_read(path) for path in test_files[:_MAX_TEST_FILES_SAMPLED])
+    if _PYTEST_MARKER_RE.search(sample):
+        return "pytest"
+    if _UNITTEST_CLASS_RE.search(sample):
+        return "unittest"
+    if _BARE_TEST_FUNC_RE.search(sample):
+        # Bare test functions with no TestCase subclass: unittest discover
+        # would collect none of these regardless of any manifest.
+        return "pytest"
+    return "pytest" if _declares_pytest(root) else "unittest"
+
+
+def _python_test_command(root: Path, subdir: str | None = None) -> str | None:
+    """The verification command for the Python tests found in `root`.
+
+    `subdir` is `root`'s path relative to the actual execution root (the
+    repository root) when scoping to one monorepo package -- the command
+    always runs from the repository root, adding `subdir` to PYTHONPATH,
+    rather than cd-ing into it: cd-ing away from the repo root drops any
+    sibling top-level package off sys.path, breaking imports inside the
+    subdir's own modules that reach across the repo (e.g.
+    `backend/report_integrity.py` importing a shared `agent/` package next
+    to `backend/`) -- a real, observed failure unrelated to the migration
+    under test. `subdir=None` means `root` already IS the execution root.
+    """
+    style = detect_python_test_style(root)
+    if style is None:
+        return None
+    test_dir = "tests" if (root / "tests").is_dir() else "test"
+
+    if not subdir:
+        if style == "pytest":
+            return "python -m pytest -q"
+        return f'python -m unittest discover -s "{test_dir}" -t . -v'
+
+    env = f'PYTHONPATH=".:{subdir}"'
+    if style == "pytest":
+        return f"{env} python -m pytest {subdir} -q"
+    return f'{env} python -m unittest discover -s "{subdir}/{test_dir}" -t "{subdir}" -v'
 
 
 def _makefile_test_target(root: Path) -> str | None:
@@ -173,10 +252,10 @@ def _ecosystem_manifests(root: Path) -> list[str]:
     found = []
     if (root / "package.json").is_file():
         found.append("js")
-    if any((root / name).is_file() for name in (
-        "pyproject.toml", "requirements.txt", "setup.py", "setup.cfg",
-        "poetry.lock", "tox.ini", "pytest.ini",
-    )):
+    has_python_manifest = any((root / name).is_file() for name in (
+        "pyproject.toml", "setup.py", "setup.cfg", "poetry.lock", "tox.ini", "pytest.ini",
+    )) or requirement_files(root)
+    if has_python_manifest:
         found.append("python")
     for marker, name in (
         ("Cargo.toml", "rust"), ("go.mod", "go"), ("pom.xml", "maven"),
@@ -189,33 +268,45 @@ def _ecosystem_manifests(root: Path) -> list[str]:
     return found
 
 
-def infer_test_command(root: Path) -> str | None:
-    """Infer a verification command for one directory. None = no confident match.
+def infer_test_command(root: Path, *, subdir: str | None = None) -> str | None:
+    """Infer a verification command for `root`. None = no confident match.
+
+    `subdir` is `root`'s path relative to the actual execution root when
+    `root` is one package inside a monorepo (see infer_test_command_for_files):
+    JS/Makefile/other tooling still `cd`s into `subdir` (npm/pnpm/yarn/make
+    resolve relative to their manifest's location), but Python instead runs
+    from the repository root with `subdir` on PYTHONPATH (_python_test_command)
+    -- cd-ing away from the repo root would otherwise drop any sibling
+    top-level package off sys.path and break imports that reach across the
+    repo, a real observed failure unrelated to the migration under test.
 
     Priority: repo-specific scripts (package.json scripts, Makefile test
     target) > framework/lockfile conventions > stdlib unittest fallback.
     """
-    # 1. Repository-specific scripts.
     command = _infer_js(root)  # package.json scripts + lockfile-aware runner
     if command:
-        return command
+        return f'cd "{subdir}" && {command}' if subdir else command
     command = _makefile_test_target(root)
     if command:
+        return f'cd "{subdir}" && {command}' if subdir else command
+    # Python command construction already accounts for `subdir` itself.
+    command = _python_test_command(root, subdir=subdir)
+    if command:
         return command
-    # 2. Framework/lockfile conventions. 3. Safe stdlib fallback (inside
-    # _infer_python). Multiple ecosystems at one level with no clear script
-    # would be ambiguous — but each helper is independently confident, so
-    # first hit wins in a fixed order.
-    return _infer_python(root) or _infer_other_ecosystems(root)
+    command = _infer_other_ecosystems(root)
+    if command:
+        return f'cd "{subdir}" && {command}' if subdir else command
+    return None
 
 
 def infer_test_command_for_files(repo_path: Path, files: list[str]) -> str | None:
     """Seam-scoped inference for monorepos.
 
     If every file the seam touches lives under one top-level directory that
-    carries its own manifest, the command is inferred there and scoped with a
-    `cd`. Otherwise: root inference if the root has a manifest; None (ask the
-    human) when the seam spans multiple ecosystems with no root-level signal.
+    carries its own manifest, the command is inferred there and scoped to
+    that directory. Otherwise: root inference if the root has a manifest;
+    None (ask the human) when the seam spans multiple ecosystems with no
+    root-level signal.
     """
     top_dirs = {file.split("/")[0] for file in files if "/" in file}
     root_has_manifest = bool(_ecosystem_manifests(repo_path))
@@ -224,9 +315,9 @@ def infer_test_command_for_files(repo_path: Path, files: list[str]) -> str | Non
         subdir = next(iter(top_dirs))
         sub_path = repo_path / subdir
         if sub_path.is_dir() and _ecosystem_manifests(sub_path):
-            command = infer_test_command(sub_path)
+            command = infer_test_command(sub_path, subdir=subdir)
             if command:
-                return f'cd "{subdir}" && {command}'
+                return command
 
     if root_has_manifest or not top_dirs:
         return infer_test_command(repo_path)
@@ -239,7 +330,8 @@ def infer_test_command_for_files(repo_path: Path, files: list[str]) -> str | Non
         if (repo_path / directory).is_dir() and _ecosystem_manifests(repo_path / directory)
     ]
     if len(with_manifests) == 1:
-        command = infer_test_command(repo_path / with_manifests[0])
+        subdir = with_manifests[0]
+        command = infer_test_command(repo_path / subdir, subdir=subdir)
         if command:
-            return f'cd "{with_manifests[0]}" && {command}'
+            return command
     return infer_test_command(repo_path)

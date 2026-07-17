@@ -14,6 +14,7 @@ import asyncio
 from pathlib import Path
 
 import config
+import repo_config
 from shell import run
 
 # Failure logs starting with this marker mean the dependency install broke,
@@ -26,7 +27,11 @@ def _install_command(worktree_path: Path) -> str | None:
     """Infer the dependency-install command from manifests in the worktree root.
 
     Lockfile picks the JS package manager (mirrors repo_config's runner
-    choice); requirements.txt beats pyproject.toml for Python. None = no
+    choice); requirements*.txt (every variant -- requirements.txt,
+    requirements-dev.txt, ... -- see repo_config.requirement_files, the same
+    scan the test-framework detector uses) beats pyproject.toml for Python,
+    since a declared dev/test dependency like pytest must actually be
+    installed for a command that was inferred to need it. None = no
     recognized manifest = no install step (e.g. the stdlib-only demo repo).
     """
     if (worktree_path / "package.json").is_file():
@@ -35,8 +40,9 @@ def _install_command(worktree_path: Path) -> str | None:
         if (worktree_path / "yarn.lock").is_file():
             return "yarn install"
         return "npm install"
-    if (worktree_path / "requirements.txt").is_file():
-        return "pip install -r requirements.txt"
+    req_files = sorted(path.name for path in repo_config.requirement_files(worktree_path))
+    if req_files:
+        return "pip install " + " ".join(f"-r {name}" for name in req_files)
     if (worktree_path / "pyproject.toml").is_file():
         return "pip install ."
     return None

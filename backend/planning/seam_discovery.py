@@ -461,10 +461,15 @@ Rules:
 - confidence is your 0.0-1.0 estimate that this pattern captures the
   opportunity described above.
 - reasoning must explain WHY this seam exists and what breakage you expect.
+- Do NOT propose a verification command: you cannot see this repository's
+  installed tooling (package.json scripts, pytest vs unittest, TypeScript
+  presence, etc.), so any command you name would be a guess, not a fact.
+  The verification command is resolved separately from the repository's
+  actual manifests (see main.py's /discover endpoint), never from this call.
 
 Return ONLY strict JSON, no markdown fences, exactly this shape:
 {{"beforePattern": "...", "afterPattern": "...", "scopeGlobs": ["..."],
-  "invariants": ["..."], "testCommand": "..." or null,
+  "invariants": ["..."],
   "risk": "low" | "medium" | "high", "breakingChanges": true or false,
   "confidence": 0.0, "reasoning": "two to four sentences"}}
 """

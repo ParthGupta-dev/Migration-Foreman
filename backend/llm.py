@@ -189,7 +189,14 @@ def complete(prompt: str, json_mode: bool = False, model: str | None = None) -> 
     except ImportError as exc:
         raise LlmError(f"openai package not installed: {exc}") from exc
 
-    client = OpenAI(api_key=provider.api_key, base_url=provider.base_url)
+    # max_retries=0: the SDK's own retry/backoff would otherwise run *inside*
+    # invoke() before RateLimitError ever reaches the loop below, stacking a
+    # second, provider-agnostic backoff on top of the provider-aware one
+    # here (which parses Groq's actual "try again in Xs" delay). Left at the
+    # SDK default (2), a single rate-limited call could sleep through two
+    # internal retries and then all of _RATE_LIMIT_RETRIES again -- easily
+    # minutes per call, which is what made Autonomous mode look hung.
+    client = OpenAI(api_key=provider.api_key, base_url=provider.base_url, max_retries=0)
 
     def invoke(use_json: bool) -> str:
         if provider.api == "responses":
